@@ -227,6 +227,7 @@
   // Clicar na barra move o início para ali.
   bar.track.addEventListener('pointerdown',event=>{if(event.target===bar.track||event.target===bar.range)applyTrim('start',fromPointer(event));});
   player.video.addEventListener('timeupdate',()=>{bar.head.style.left=pct(player.video.currentTime,bar.length)+'%';});
+  player.video.addEventListener('loadedmetadata',()=>preview());
   player.video.addEventListener('seeked',drawBackground);player.video.addEventListener('loadeddata',drawBackground);player.video.addEventListener('play',drawLoop);
   player.video.addEventListener('timeupdate',()=>{if(player.playing&&player.video.currentTime>=player.end-.04)advance();});
   player.video.addEventListener('ended',()=>{if(player.playing)advance();});
@@ -242,7 +243,7 @@
   };
   el('t5Sound').onclick=()=>{const on=player.video.muted;player.video.muted=!on;el('t5Sound').setAttribute('aria-pressed',String(on));el('t5Sound').textContent=on?'🔊 Som':'🔇 Mudo';};
   window.addEventListener('hashchange',()=>{if(location.hash!=='#/top5'&&player.playing)stopPlayer();});
-  function data(){return {headline:el('t5Headline').value.trim(),order:el('t5Order').value,layout:el('t5Layout').value,normalize_audio:el('t5Normalize').checked,title_font:el('t5TitleFont').value,rank_font:el('t5RankFont').value,text_effect:el('t5Effect').value,accent_color:el('t5Accent').value,title_color:el('t5TitleColor').value,rank_color:el('t5RankColor').value,outline_color:el('t5OutlineColor').value,outline_width:Number(el('t5OutlineWidth').value),shadow_color:el('t5ShadowColor').value,shadow_depth:Number(el('t5ShadowDepth').value),animation_style:el('t5AnimationStyle').value,title_size:Number(el('t5TitleSize').value),rank_size:Number(el('t5RankSize').value),rank_position:Number(el('t5RankPosition').value),animate_reveal:el('t5Animate').checked,animate_intro:el('t5Intro').checked,watermark:el('t5Watermark').value.trim(),watermark_opacity:Number(el('t5WatermarkOpacity').value),watermark_font:el('t5WatermarkFont').value,entries:Array.from({length:Number(el('t5Count').value)},(_,i)=>({...window.TopFiveTools?.entry(i),url:el('t5Url'+i).value.trim(),name:el('t5Name'+i).value.trim(),start:Number(el('t5Start'+i).value||0),duration:el('t5End'+i).value===''?null:round2(Number(el('t5End'+i).value)-Number(el('t5Start'+i).value||0))}))};}
+  function data(){return {headline:el('t5Headline').value.trim(),order:el('t5Order').value,layout:el('t5Layout').value,card_scale:Number(el('t5CardScale').value),card_position:Number(el('t5CardPosition').value),card_radius:Number(el('t5CardRadius').value),normalize_audio:el('t5Normalize').checked,title_font:el('t5TitleFont').value,rank_font:el('t5RankFont').value,text_effect:el('t5Effect').value,accent_color:el('t5Accent').value,title_color:el('t5TitleColor').value,rank_color:el('t5RankColor').value,outline_color:el('t5OutlineColor').value,outline_width:Number(el('t5OutlineWidth').value),shadow_color:el('t5ShadowColor').value,shadow_depth:Number(el('t5ShadowDepth').value),animation_style:el('t5AnimationStyle').value,title_size:Number(el('t5TitleSize').value),rank_size:Number(el('t5RankSize').value),rank_position:Number(el('t5RankPosition').value),animate_reveal:el('t5Animate').checked,animate_intro:el('t5Intro').checked,watermark:el('t5Watermark').value.trim(),watermark_opacity:Number(el('t5WatermarkOpacity').value),watermark_font:el('t5WatermarkFont').value,entries:Array.from({length:Number(el('t5Count').value)},(_,i)=>({...window.TopFiveTools?.entry(i),url:el('t5Url'+i).value.trim(),name:el('t5Name'+i).value.trim(),start:Number(el('t5Start'+i).value||0),duration:el('t5End'+i).value===''?null:round2(Number(el('t5End'+i).value)-Number(el('t5Start'+i).value||0))}))};}
   function preview(replay=false){
     const spec=data(),count=spec.entries.length;
     el('t5Watermark').setCustomValidity(!spec.watermark||/^@?[\p{L}\p{N}_.-]{1,31}$/u.test(spec.watermark)?'':'Use até 31 letras, números, pontos, hífens ou sublinhados, sem espaços.');
@@ -255,7 +256,18 @@
     el('t5Create').textContent=`Montar meu Top ${count} →`;
     const phone=document.querySelector('.t5-phone');phone.dataset.effect=spec.text_effect;phone.dataset.motion=spec.animation_style;
     phone.style.setProperty('--t5-rank-color',spec.rank_color);phone.style.setProperty('--t5-outline-color',spec.outline_color);phone.style.setProperty('--t5-outline-width',`${spec.outline_width/10.8}cqw`);phone.style.setProperty('--t5-shadow-color',spec.shadow_color);phone.style.setProperty('--t5-shadow-depth',`${spec.shadow_depth/10.8}cqw`);
-    el('t5OutlineValue').textContent=spec.outline_width;el('t5ShadowValue').textContent=spec.shadow_depth;phone.dataset.animate=String(spec.animate_reveal);phone.dataset.intro=String(spec.animate_intro);phone.dataset.opening=String(step===0);
+    el('t5OutlineValue').textContent=spec.outline_width;el('t5ShadowValue').textContent=spec.shadow_depth;
+    // Cartão: vídeo menor na frente, com o fundo desfocado atrás.
+    el('t5CardControls').hidden=spec.layout!=='card';
+    el('t5CardScaleValue').textContent=spec.card_scale;el('t5CardPositionValue').textContent=spec.card_position;el('t5CardRadiusValue').textContent=spec.card_radius;
+    phone.style.setProperty('--t5-card-width',`${spec.card_scale}%`);phone.style.setProperty('--t5-card-top',`${spec.card_position}%`);phone.style.setProperty('--t5-card-radius',`${spec.card_radius/10.8}cqw`);
+    // O cartão nunca passa das bordas: mesmo limite usado na montagem do vídeo.
+    const cardW=player.video.videoWidth,cardH=player.video.videoHeight;
+    if(spec.layout==='card'&&cardW&&cardH){
+      const boxHeight=Math.min(1,spec.card_scale/100*(cardH/cardW)*(9/16));
+      const boxTop=Math.min(Math.max(0,spec.card_position/100-boxHeight/2),1-boxHeight);
+      phone.style.setProperty('--t5-card-top',`${(boxTop+boxHeight/2)*100}%`);
+    }phone.dataset.animate=String(spec.animate_reveal);phone.dataset.intro=String(spec.animate_intro);phone.dataset.opening=String(step===0);
     spec.entries.forEach((item,i)=>{el('t5TrimSummary'+i).textContent=trims[i].check();});
     el('t5PreviewWatermark').textContent=spec.watermark?'@'+spec.watermark.replace(/^@+/,''):'';el('t5PreviewWatermark').style.opacity=spec.watermark_opacity/100;phone.style.setProperty('--t5-watermark-font',spec.watermark_font);
     if(replay===true){phone.classList.remove('t5-playing');void phone.offsetWidth;phone.classList.add('t5-playing');}
@@ -276,7 +288,7 @@
     el('t5Count').value=Math.max(3,Math.min(5,spec.entries?.length||5));
     const controls={t5RankColor:spec.rank_color||'#ffffff',t5OutlineColor:spec.outline_color||'#101010',t5OutlineWidth:spec.outline_width??5,t5ShadowColor:spec.shadow_color||'#000000',t5ShadowDepth:spec.shadow_depth??2,t5AnimationStyle:spec.animation_style||'slide',t5TitleFont:spec.title_font||'Impact',t5RankFont:spec.rank_font||'Arial',t5Effect:spec.text_effect||'outline',t5Accent:spec.accent_color||'#ffdd45',t5TitleColor:spec.title_color||'#ffffff',t5TitleSize:spec.title_size||72,t5RankSize:spec.rank_size||54,t5RankPosition:spec.rank_position||50,t5Watermark:spec.watermark||'',t5WatermarkOpacity:spec.watermark_opacity??40,t5WatermarkFont:spec.watermark_font||'Arial'};
     Object.entries(controls).forEach(([id,value])=>el(id).value=value);el('t5Animate').checked=spec.animate_reveal!==false;el('t5Intro').checked=spec.animate_intro!==false;
-    el('t5Headline').value=spec.headline||'';el('t5Order').value=spec.order||'ascending';el('t5Layout').value=spec.layout||'fit';el('t5Normalize').checked=spec.normalize_audio!==false;
+    el('t5Headline').value=spec.headline||'';el('t5Order').value=spec.order||'ascending';el('t5Layout').value=spec.layout||'fit';el('t5CardScale').value=spec.card_scale??78;el('t5CardPosition').value=spec.card_position??38;el('t5CardRadius').value=spec.card_radius??28;el('t5Normalize').checked=spec.normalize_audio!==false;
     spec.entries?.slice(0,5).forEach((e,i)=>{el('t5Url'+i).value=e.url||'';el('t5Name'+i).value=e.name||'';el('t5Start'+i).value=e.start||0;el('t5End'+i).value=e.duration==null?'':Number(((e.start||0)+e.duration).toFixed(2));const trim=trims[i];trim.manualEnd=e.duration!=null;trim.probed=undefined;trim.limits();if(media[i])measure(i);else trim.probe();});showPool();preview();
   }
   const presets={

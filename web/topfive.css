@@ -109,3 +109,8 @@
 .t5-trimbar-handle{position:absolute;top:-3px;width:14px;height:32px;margin-left:-7px;padding:0;border:1px solid #efd080;border-radius:6px;background:#efd080;cursor:ew-resize;touch-action:none}
 .t5-trimbar-handle:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .t5-trimbar-info{margin:8px 0 0;font-size:11px;color:#b6b6c3;font-variant-numeric:tabular-nums}
+
+/* Cartão: o vídeo ocupa só uma parte da tela, com o fundo desfocado atrás. */
+.t5-phone[data-layout=card][data-video=true] .t5-preview-bg{display:block}
+.t5-phone[data-layout=card] .t5-preview-video{inset:auto;left:50%;top:var(--t5-card-top,38%);width:var(--t5-card-width,78%);height:auto;max-height:100%;transform:translate(-50%,-50%);border-radius:var(--t5-card-radius,2.6cqw);object-fit:contain}
+.t5-phone[data-layout=card] .t5-preview-scene{inset:auto 11% auto;top:var(--t5-card-top,38%);transform:translateY(-50%)}

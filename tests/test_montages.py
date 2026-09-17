@@ -3,6 +3,7 @@ import random
 import re
 import subprocess
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -638,3 +639,69 @@ def test_reveal_sound_api_and_short_custom_sounds(client, tmp_path):
     assert ok.status_code == 202
     missing = client.post('/api/quiz', json=quiz_payload(reveal_sound='custom', reveal_sound_file='d' * 32 + '.wav'))
     assert missing.status_code == 422
+
+
+def test_vs_puts_both_videos_in_a_band_with_badge_and_watermark(tmp_path):
+    import cv2
+    a, b = _sources(tmp_path)
+    spec = rc.Reaction.model_validate(reaction_payload(layout='vs', badge='VS', watermark='meuperfil',
+                                                       band_height=50, band_position=40, duration=1.2))
+    assert spec.watermark == '@meuperfil'
+    labels = rc.labels_ass(spec, 1.2, tmp_path / 'labels.ass').read_text(encoding='utf-8')
+    # O selo pulsa: um evento por batida de 1,2s, e o @ fica no rodapé.
+    assert labels.count('}VS\n') == 1 and 'ORIGINAL' in labels and '}@meuperfil\n' in labels
+    width, band_height, top = rc.band_box(spec, 270, 480)
+    assert (width, band_height, top) == (270, 240, 72)
+
+    result = rc.render_reaction(spec, {'top': a, 'bottom': b}, tmp_path, width=270, height=480)
+    assert result['layout'] == 'vs'
+    info = probe(tmp_path / 'clips/reaction.mp4')
+    assert info.has_audio and (info.width, info.height) == (270, 480)
+    frame = tmp_path / 'vs.png'
+    ffmpeg(['-ss', '0.4', '-i', str((tmp_path / 'clips/reaction.mp4').resolve()),
+            '-frames:v', '1', str(frame.resolve())], tmp_path)
+    image = cv2.imread(str(frame)).astype(int)
+    # O divisor entre os dois vídeos é nítido dentro da faixa e some no fundo desfocado.
+    edge = lambda row: float(np.abs(np.diff(image[row, 129:142].mean(axis=1))).max())
+    assert min(edge(top + 40), edge(top + band_height - 40)) > 100
+    assert max(edge(top - 15), edge(top + band_height + 15), edge(460)) < 20
+
+    for bad in ({'watermark': 'nome com espaco'}, {'band_height': 10}, {'band_position': 95}):
+        with pytest.raises(ValidationError):
+            rc.Reaction.model_validate(reaction_payload(layout='vs', **bad))
+
+
+def test_title_and_watermark_fonts_reach_the_burned_labels(tmp_path):
+    spec = rc.Reaction.model_validate(reaction_payload(headline='Olha isso', headline_font='Impact', headline_size=76,
+                                                       headline_position=8, watermark='meuperfil', watermark_font='Georgia'))
+    labels = rc.labels_ass(spec, 2.0, tmp_path / 'labels.ass').read_text(encoding='utf-8')
+    title = next(line for line in labels.splitlines() if line.startswith('Dialogue: 1'))
+    mark = next(line for line in labels.splitlines() if '@meuperfil' in line)
+    assert '\\fnImpact' in title and '\\fs76' in title and '\\pos(540,154)' in title
+    assert '\\fnGeorgia' in mark  # o @ também vale no empilhado, não só no VS
+    with pytest.raises(ValidationError):
+        rc.Reaction.model_validate(reaction_payload(headline_font='Wingdings'))
+
+
+def test_preview_source_downloads_a_window_once(client, tmp_path, monkeypatch):
+    from api import preview as pv
+    monkeypatch.setattr(pv, 'STORAGE', tmp_path)
+    calls = []
+
+    def fake(url, start, target):
+        calls.append((url, start))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b'mp4')
+        return target
+
+    monkeypatch.setattr(pv, 'download_window', fake)
+    params = {'url': TT, 'start': 2.5}
+    for _ in range(2):
+        response = client.get('/api/preview/source', params=params)
+        assert response.status_code == 200 and response.content == b'mp4'
+    assert calls == [(TT, 2.5)]
+    assert client.get('/api/preview/source', params={'url': TT, 'start': 9.0}).status_code == 200
+    assert len(calls) == 2  # outro início, outro arquivo
+    assert client.get('/api/preview/source', params={'url': 'https://exemplo.com/video'}).status_code == 422
+    monkeypatch.setattr(pv, 'download_window', lambda *a: (_ for _ in ()).throw(RuntimeError('bloqueado')))
+    assert client.get('/api/preview/source', params={'url': YT, 'start': 1}).status_code == 502

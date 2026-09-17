@@ -70,6 +70,35 @@ def download_source(url: str, folder: Path) -> Path:
     return path
 
 
+def card_box(spec: "TopFive", source_width: int, source_height: int, width: int, height: int):
+    """Tamanho e posição do cartão: largura escolhida, altura pelo formato do vídeo, centro na altura pedida."""
+    even = lambda v: max(2, int(v) // 2 * 2)
+    box_width = even(round(width*spec.card_scale/100))
+    box_height = even(round(box_width*max(1, source_height)/max(1, source_width)))
+    if box_height > height:
+        box_height = even(height)
+        box_width = even(round(box_height*max(1, source_width)/max(1, source_height)))
+    top = min(max(0, round(height*spec.card_position/100 - box_height/2)), height-box_height)
+    return box_width, box_height, top, min(spec.card_radius, box_width//2, box_height//2)
+
+
+def card_mask(directory: Path, width: int, height: int, radius: int) -> Path:
+    """PNG cinza com um retângulo de cantos arredondados, usado como transparência do cartão."""
+    import cv2
+    import numpy as np
+    path = directory/f"card-{width}x{height}-{radius}.png"
+    if path.is_file():
+        return path
+    mask = np.zeros((height, width), np.uint8)
+    cv2.rectangle(mask, (radius, 0), (width-radius-1, height-1), 255, -1)
+    cv2.rectangle(mask, (0, radius), (width-1, height-radius-1), 255, -1)
+    for x in (radius, width-radius-1):
+        for y in (radius, height-radius-1):
+            cv2.circle(mask, (x, y), radius, 255, -1)
+    cv2.imwrite(str(path), mask)
+    return path
+
+
 def file_digest(path):
     with open(path, 'rb') as stream:
         return hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -133,7 +162,10 @@ class TopFive(BaseModel):
     headline: str = Field(min_length=1, max_length=80)
     entries: list[Entry] = Field(min_length=3, max_length=5)
     order: Literal["ascending", "countdown"] = "ascending"
-    layout: Literal["fit", "crop"] = "fit"
+    layout: Literal["fit", "crop", "card"] = "fit"
+    card_scale: int = Field(default=78, ge=40, le=95)
+    card_position: int = Field(default=38, ge=15, le=85)
+    card_radius: int = Field(default=28, ge=0, le=80)
     normalize_audio: bool = True
     title_font: FontName = 'Impact'
     rank_font: FontName = 'Arial'
@@ -301,13 +333,14 @@ def render_topfive(spec: TopFive, sources: list[Path], directory: Path, progress
         stat = sources[index].stat()
         key = {"source": str(sources[index].resolve()), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns,
                "start": segment["source_start"], "frames": segment["frames"], "layout": spec.layout,
+               "card": [spec.card_scale, spec.card_position, spec.card_radius] if spec.layout == "card" else None,
                "normalize": spec.normalize_audio, "canvas": [width, height],
                "audio":entry.model_dump(include={'audio_mode','audio_asset','narration_asset','audio_volume','narration_volume','ducking'})}
         part, part_key = work/f"part-{n}.mov", work/f"part-{n}.json"
         if part.is_file() and part_key.is_file() and json.loads(part_key.read_text(encoding="utf-8")) == key:
             continue
         part_key.unlink(missing_ok=True)
-        inputs = ["-ss", str(segment["source_start"]), "-i", str(sources[index].resolve())]
+        inputs, masks = ["-ss", str(segment["source_start"]), "-i", str(sources[index].resolve())], []
         if entry.audio_mode == 'replace':
             inputs += ['-i', str(audio_path(entry.audio_asset))]
         elif entry.audio_mode == 'mute' or not infos[index].has_audio:
@@ -316,6 +349,18 @@ def render_topfive(spec: TopFive, sources: list[Path], directory: Path, progress
             video = (f"[0:v]setpts=PTS-STARTPTS,split=2[bg][fg];[bg]scale={width}:{height}:force_original_aspect_ratio=increase,"
                      f"crop={width}:{height},boxblur=20:2[b];[fg]scale={width}:{height}:force_original_aspect_ratio=decrease[f];"
                      "[b][f]overlay=(W-w)/2:(H-h)/2")
+        elif spec.layout == "card":
+            # Vídeo menor na frente, o mesmo vídeo desfocado atrás preenchendo a tela.
+            box_width, box_height, top, radius = card_box(spec, infos[index].width, infos[index].height, width, height)
+            video = (f"[0:v]setpts=PTS-STARTPTS,split=2[bg][fg];[bg]scale={width}:{height}:force_original_aspect_ratio=increase,"
+                     f"crop={width}:{height},boxblur=20:2[b];[fg]scale={box_width}:{box_height},setsar=1")
+            if radius:
+                mask = card_mask(work, box_width, box_height, radius)
+                masks.append(str(mask))
+                video += f",format=yuva420p[fa];[{{MASK}}:v]format=gray[mk];[fa][mk]alphamerge[f]"
+            else:
+                video += "[f]"
+            video += f";[b][f]overlay=(W-w)/2:{top}"
         else:
             video = f"[0:v]setpts=PTS-STARTPTS,scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
         video += f",setsar=1,fps=30,tpad=stop_mode=clone:stop_duration=1,trim=duration={duration},format=yuv420p[v]"
@@ -332,6 +377,9 @@ def render_topfive(spec: TopFive, sources: list[Path], directory: Path, progress
                 graph += ';[bed][voice]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.95:latency=1[a]'
         else:
             graph += ';[bed]alimiter=limit=0.95:latency=1[a]'
+        for mask in masks:  # a máscara entra por último, para não mexer nos índices das faixas de áudio
+            graph = graph.replace("{MASK}", str(inputs.count("-i")))
+            inputs += ["-loop", "1", "-i", mask]
         # PCM inside MOV avoids AAC priming gaps at the joins. Only final audio is AAC.
         ffmpeg([*inputs,"-filter_complex",graph,"-map","[v]","-map","[a]","-t",str(duration),
                 "-c:v","libx264","-preset","veryfast","-crf","18","-pix_fmt","yuv420p",

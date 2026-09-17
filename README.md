@@ -9,6 +9,7 @@ Aplicativo local em Python, FastAPI, SQLite e FFmpeg. Interface sem framework.
 - Transcrever uma vez, preservar pausas, perguntas, ênfase e trocas de falante, e reutilizar o cache nas análises e edições.
 - Resumir vídeos longos em blocos temáticos de 3–5 minutos antes de analisar somente os blocos mais promissores.
 - Selecionar trechos por IA ou heurística. A IA escolhe IDs de frases; o código calcula os segundos.
+- Classificar o tipo do vídeo (podcast, entrevista, tutorial, aula, vlog, gameplay, notícia ou review) na própria triagem e ajustar as regras de corte a ele. Trechos que dividem frases com outro de nota maior são encurtados, não descartados, e emendas curtas entre os blocos analisados entram inteiras.
 - Reavaliar os trechos finais depois do ajuste de duração. A nota é editorial, não uma previsão de visualizações.
 - Saber por que a IA não foi usada quando isso acontece: o projeto avisa em destaque e diz o que corrigir, em vez de trocar por heurística em silêncio.
 - Revisar início/fim no vídeo original e corrigir cada palavra, mantendo seus timestamps.

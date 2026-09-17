@@ -485,3 +485,54 @@ def test_real_internal_edit_compresses_gap(sample,tmp_path):
                internal_silence_seconds=1)
     clip=render_clip(sample,tmp_path,words,{"index":1,"title":"Corte","source_start":0,"source_end":3.5},cfg)
     assert clip["internal_edits"] and clip["actual_duration"] < 3
+
+
+def test_partial_overlap_is_trimmed_instead_of_dropped(transcript, monkeypatch):
+    def provider(system, user, cfg):
+        if '"reviews"' in system or 'reviews' in user[:200]:
+            return json.dumps({"reviews": []})
+        return json.dumps({"clips": [{"first": 0, "last": 1, "score": 90},
+                                     {"first": 1, "last": 3, "score": 80},
+                                     {"first": 0, "last": 1, "score": 70}]})
+    monkeypatch.setitem(selector.PROVIDERS, "anthropic", provider)
+    plans = select_clips(build_sentences(transcript), cfg=Config(min_duration=.5, max_duration=8, max_clips=5))
+    spans = [(p.first, p.last) for p in plans]
+    # O segundo dividia a frase 1 com o primeiro: entra encurtado, em vez de sumir.
+    assert spans[0] == (0, 1) and spans[1][0] == 2
+    # O terceiro repetia um trecho inteiro já usado e continua fora.
+    assert len(spans) == 2 and len({s[0] for s in spans}) == 2
+
+
+def test_free_span_finds_the_largest_unused_stretch():
+    assert selector.free_span(0, 10, []) == (0, 10)
+    assert selector.free_span(0, 10, [(3, 5)]) == (6, 10)      # o maior lado livre
+    assert selector.free_span(0, 10, [(0, 2)]) == (3, 10)
+    assert selector.free_span(0, 10, [(0, 10)]) is None
+    assert selector.free_span(2, 4, [(0, 3)]) == (4, 4)
+
+
+def test_triage_classifies_the_video_and_stitches_neighbour_blocks(monkeypatch):
+    # Vinte blocos de 130s: só alguns são analisados, e a triagem diz o tipo do vídeo.
+    sentences = [Sentence(id=i, start=i * 130.0, end=i * 130.0 + 120, text=f"Frase {i}.", words=[]) for i in range(20)]
+    calls = []
+
+    def provider(system, user, cfg):
+        calls.append((system, user))
+        if "Classifique o vídeo" in system:
+            return json.dumps({"video_type": "tutorial",
+                               "blocks": [{"id": i, "summary": "x", "score": 90 if i in (2, 4, 9) else 1}
+                                          for i in range(20)]})
+        return json.dumps({"clips": [{"first": 2, "last": 2, "score": 88}]})
+
+    monkeypatch.setitem(selector.PROVIDERS, "anthropic", provider)
+    cfg = Config(min_duration=.5, max_duration=200, max_clips=3, shortlist_multiplier=1,
+                 analysis_block_seconds=120, analysis_context_sentences=1)
+    clips = selector._hierarchical_candidates(sentences, "Aula", "pt", cfg, {}, None)
+    assert clips and clips[0]["first"] == 2
+    selection = calls[-1][1]
+    assert "Tipo de vídeo: tutorial" in selection and "terminar no resultado" in selection
+    outline_ids = {int(i) for i in re.findall(r"\[(\d+)\]", selection)}
+    # Emendas curtas entre os blocos escolhidos (2, 4 e 9) entram inteiras.
+    assert {1, 2, 3, 4, 5, 6, 7, 8, 9, 10} <= outline_ids
+    # O resto do vídeo continua de fora: a costura fecha buracos, não abre o vídeo todo.
+    assert not {0, 12, 15, 19} & outline_ids

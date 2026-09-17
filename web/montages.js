@@ -527,7 +527,8 @@
   /* ------------------------------ reação ------------------------------ */
   const reactionMusic = musicWidget(document.querySelector('[data-music="rc"]'));
   const NAMES = {stacked: {top: ['Vídeo de cima', 'O original, que está sendo reagido', 'Original'], bottom: ['Vídeo de baixo', 'Quem reage', '@quemreage']},
-                 side: {top: ['Vídeo da esquerda', 'O antes', 'Antes'], bottom: ['Vídeo da direita', 'O depois', 'Depois']}};
+                 side: {top: ['Vídeo da esquerda', 'O antes', 'Antes'], bottom: ['Vídeo da direita', 'O depois', 'Depois']},
+                 vs: {top: ['Vídeo da esquerda', 'Quem está de um lado', 'Lado A'], bottom: ['Vídeo da direita', 'Quem está do outro', 'Lado B']}};
   el('rcSides').innerHTML = ['top', 'bottom'].map(key => `<fieldset class="t5-entry"><legend id="rc_${key}_legend"></legend><span class="t5-number" aria-hidden="true" id="rc_${key}_icon"></span><div class="t5-entry-fields">
     <p class="mg-side-title"><span id="rc_${key}_title"></span> <small id="rc_${key}_hint"></small></p>
     <label>Link do vídeo<input id="rc_${key}_url" type="url" required maxlength="600" placeholder="https://…"></label>
@@ -545,7 +546,11 @@
   function reactionData() {
     return {headline: el('rcHeadline').value.trim(), layout: radio('rcLayout'), top: side('top'), bottom: side('bottom'),
       duration: num('rcDuration', null), fit: el('rcFit').value, normalize_audio: el('rcNormalize').checked,
-      captions: el('rcCaptions').value, ...reactionMusic.get()};
+      captions: el('rcCaptions').value, band_height: Number(el('rcBandHeight').value), band_position: Number(el('rcBandPosition').value),
+      badge: el('rcBadge').value.trim(), watermark: el('rcWatermark').value.trim(), watermark_opacity: Number(el('rcWatermarkOpacity').value),
+      watermark_font: el('rcWatermarkFont').value, headline_font: el('rcTitleFont').value,
+      headline_size: Number(el('rcTitleSize').value), headline_position: Number(el('rcTitlePosition').value),
+      ...reactionMusic.get()};
   }
 
   let lastLayout = 'stacked';
@@ -555,8 +560,9 @@
       // Rótulos padrão acompanham o arranjo, mas nunca apagam o que a pessoa escreveu.
       for (const key of ['top', 'bottom']) {
         const input = el(`rc_${key}_label`);
-        if (layout === 'side' && !input.value) input.value = NAMES.side[key][2];
-        else if (layout === 'stacked' && input.value === NAMES.side[key][2]) input.value = '';
+        const defaults = ['Antes', 'Depois', 'Lado A', 'Lado B'];
+        if (layout !== 'stacked' && !input.value) input.value = NAMES[layout][key][2];
+        else if (defaults.includes(input.value) && input.value !== NAMES[layout][key][2]) input.value = layout === 'stacked' ? '' : NAMES[layout][key][2];
       }
       lastLayout = layout;
     }
@@ -565,20 +571,42 @@
       el(`rc_${key}_legend`).textContent = names[key][0];
       el(`rc_${key}_title`).textContent = names[key][0];
       el(`rc_${key}_hint`).textContent = names[key][1];
-      el(`rc_${key}_icon`).textContent = layout === 'side' ? (key === 'top' ? '←' : '→') : (key === 'top' ? '↑' : '↓');
+      el(`rc_${key}_icon`).textContent = layout === 'stacked' ? (key === 'top' ? '↑' : '↓') : (key === 'top' ? '←' : '→');
       el(`rc_${key}_label`).placeholder = names[key][2];
       el('rcCaptions').querySelector(`option[value="${key}"]`).textContent = `Legendar o ${names[key][0].toLowerCase()}`;
     }
     el('rcPreviewFirst').textContent = names.top[0];
     el('rcPreviewSecond').textContent = names.bottom[0];
-    el('rcSwap').textContent = layout === 'side' ? '⇄ Inverter esquerda e direita' : '⇅ Inverter cima e baixo';
+    el('rcSwap').textContent = layout === 'stacked' ? '⇅ Inverter cima e baixo' : '⇄ Inverter esquerda e direita';
   }
 
   function reactionPreview() {
     layoutChanged();
     const spec = reactionData();
     const phone = el('rcPhone');
-    phone.classList.toggle('mg-side', spec.layout === 'side');
+    phone.classList.toggle('mg-side', spec.layout !== 'stacked');
+    phone.classList.toggle('mg-vs', spec.layout === 'vs');
+    // VS: faixa central com os dois vídeos; o resto da tela fica desfocado no vídeo final.
+    el('rcVsControls').hidden = spec.layout !== 'vs';
+    el('rcBandHeightValue').textContent = spec.band_height;
+    el('rcBandPositionValue').textContent = spec.band_position;
+    el('rcWatermarkOpacityValue').textContent = spec.watermark_opacity;
+    el('rcWatermark').setCustomValidity(!spec.watermark || /^@?[\p{L}\p{N}_.-]{1,31}$/u.test(spec.watermark) ? '' : 'Use até 31 letras, números, pontos, hífens ou sublinhados, sem espaços.');
+    const band = Math.min(100, spec.band_height), center = Math.min(Math.max(band / 2, spec.band_position), 100 - band / 2);
+    phone.style.setProperty('--mg-band-height', `${band}%`);
+    phone.style.setProperty('--mg-band-top', `${center - band / 2}%`);
+    el('rcPreviewBadge').textContent = spec.layout === 'vs' ? spec.badge : '';
+    el('rcPreviewMark').textContent = spec.watermark ? '@' + spec.watermark.replace(/^@+/, '') : '';
+    el('rcPreviewMark').style.opacity = spec.watermark_opacity / 100;
+    // Título e @ seguem a mesma medida do vídeo final: 1080 px de largura = 100cqw.
+    el('rcTitleSizeValue').textContent = spec.headline_size;
+    el('rcTitlePositionValue').textContent = spec.headline_position;
+    phone.style.setProperty('--mg-title-font', spec.headline_font);
+    phone.style.setProperty('--mg-title-size', `${spec.headline_size / 10.8}cqw`);
+    phone.style.setProperty('--mg-title-top', `${spec.headline_position}%`);
+    phone.style.setProperty('--mg-mark-font', spec.watermark_font);
+    phone.dataset.fit = spec.fit;
+    drawBlur();
     phone.classList.toggle('mg-has-title', !!spec.headline);
     el('rcPreviewTitle').textContent = spec.headline;
     el('rcPreviewTagTop').textContent = spec.top.label;
@@ -587,7 +615,105 @@
     el('rcCaptionsHelp').hidden = spec.captions === 'none';
     for (const key of ['top', 'bottom']) el(`rc_${key}_volume_out`).textContent = Math.round(spec[key].volume * 100) + '%';
   }
-  el('rcSwap').onclick = () => { const top = side('top'), bottom = side('bottom'); setSide('top', bottom); setSide('bottom', top); reactionPreview(); };
+  /* ----------- prévia com os vídeos de verdade (trecho leve, baixado na hora) ----------- */
+  // Um trecho de 30s de cada link vira arquivo local; sem isso o navegador não toca TikTok, Twitch ou YouTube.
+  const players = {top: el('rcVideoTop'), bottom: el('rcVideoBottom')};
+  // Fundo do VS: o mesmo par de vídeos, ampliado e desfocado, como na montagem final.
+  const blur = {canvas: el('rcBlurCanvas'), frame: 0};
+  function drawCover(ctx, video, x, y, width, height) {
+    const sourceWidth = video.videoWidth, sourceHeight = video.videoHeight;
+    if (!sourceWidth || !sourceHeight || video.readyState < 2) return false;
+    const scale = Math.max(width / sourceWidth, height / sourceHeight);
+    const drawWidth = sourceWidth * scale, drawHeight = sourceHeight * scale;
+    ctx.save(); ctx.beginPath(); ctx.rect(x, y, width, height); ctx.clip();
+    ctx.drawImage(video, x + (width - drawWidth) / 2, y + (height - drawHeight) / 2, drawWidth, drawHeight);
+    ctx.restore();
+    return true;
+  }
+  function drawBlur() {
+    const {canvas} = blur, show = radio('rcLayout') === 'vs' && ['top', 'bottom'].some(key => players[key].readyState >= 2);
+    canvas.hidden = !show;
+    if (!show) return;
+    const ctx = canvas.getContext('2d'), band = Math.max(1, Number(el('rcBandHeight').value) || 52);
+    const zoom = 100 / band, bandWidth = canvas.width * zoom, left = (canvas.width - bandWidth) / 2;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawCover(ctx, players.top, left, 0, bandWidth / 2, canvas.height);
+    drawCover(ctx, players.bottom, left + bandWidth / 2, 0, bandWidth / 2, canvas.height);
+  }
+  function blurLoop() {
+    cancelAnimationFrame(blur.frame);
+    drawBlur();
+    if (['top', 'bottom'].some(key => !players[key].paused && players[key].src)) blur.frame = requestAnimationFrame(blurLoop);
+  }
+  const loaded = {top: '', bottom: ''};
+  let previewTicket = 0;
+  const previewStatus = message => { el('rcPreviewStatus').textContent = message; };
+  function showHalf(key, on) {
+    players[key].hidden = !on;
+    el(key === 'top' ? 'rcHalfTop' : 'rcHalfBottom').classList.toggle('has-video', on);
+  }
+  async function loadPreviewSources() {
+    const ticket = ++previewTicket, wanted = {top: side('top'), bottom: side('bottom')};
+    if (!wanted.top.url || !wanted.bottom.url) { previewStatus('Cole os dois links para ver a prévia com os vídeos.'); return false; }
+    const missing = ['top', 'bottom'].filter(key => loaded[key] !== `${wanted[key].url}|${wanted[key].start}`);
+    if (!missing.length) return true;
+    previewStatus('Preparando a prévia: baixando 30 segundos de cada vídeo…');
+    const results = await Promise.all(missing.map(async key => {
+      const params = new URLSearchParams({url: wanted[key].url, start: String(wanted[key].start || 0)});
+      try {
+        const response = await fetch('/api/preview/source?' + params);
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw Error(typeof body.detail === 'string' ? body.detail : 'Não foi possível preparar a prévia deste link.');
+        }
+        if (ticket !== previewTicket) return true;
+        players[key].src = '/api/preview/source?' + params;
+        loaded[key] = `${wanted[key].url}|${wanted[key].start}`;
+        showHalf(key, true);
+        return true;
+      } catch (error) {
+        if (ticket === previewTicket) previewStatus(`${NAMES[radio('rcLayout')][key][0]}: ${error.message}`);
+        return false;
+      }
+    }));
+    if (ticket !== previewTicket) return false;
+    if (results.every(Boolean)) previewStatus('Prévia pronta. O vídeo final é gerado em alta qualidade pelo worker.');
+    return results.every(Boolean);
+  }
+  el('rcPlay').onclick = async () => {
+    const button = el('rcPlay');
+    if (['top', 'bottom'].every(key => !players[key].paused && players[key].src)) {
+      for (const key of ['top', 'bottom']) players[key].pause();
+      button.textContent = '▶ Tocar os vídeos';
+      return;
+    }
+    button.disabled = true;
+    const ok = await loadPreviewSources();
+    button.disabled = false;
+    if (!ok) return;
+    for (const key of ['top', 'bottom']) { players[key].currentTime = 0; players[key].play().catch(() => {}); }
+    button.textContent = '❚❚ Pausar';
+  };
+  el('rcSound').onclick = () => {
+    const on = players.top.muted;
+    for (const key of ['top', 'bottom']) players[key].muted = !on;
+    el('rcSound').setAttribute('aria-pressed', String(on));
+    el('rcSound').textContent = on ? '🔊 Som' : '🔇 Mudo';
+  };
+  for (const key of ['top', 'bottom']) {
+    el(`rc_${key}_url`).addEventListener('change', () => { if (loaded[key] && !el(`rc_${key}_url`).value.trim()) { loaded[key] = ''; showHalf(key, false); } });
+    players[key].addEventListener('error', () => { loaded[key] = ''; showHalf(key, false); drawBlur(); });
+    for (const event of ['loadeddata', 'seeked', 'pause']) players[key].addEventListener(event, drawBlur);
+    players[key].addEventListener('play', blurLoop);
+  }
+  window.addEventListener('hashchange', () => { if (location.hash !== '#/reaction') for (const key of ['top', 'bottom']) players[key].pause(); });
+  // O navegador congela a animação em aba oculta: ao voltar, o fundo desfocado recomeça.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) blurLoop(); });
+
+  el('rcSwap').onclick = () => { const top = side('top'), bottom = side('bottom'); setSide('top', bottom); setSide('bottom', top);
+    [loaded.top, loaded.bottom] = [loaded.bottom, loaded.top];
+    [players.top.src, players.bottom.src] = [players.bottom.currentSrc || '', players.top.currentSrc || ''];
+    reactionPreview(); };
   el('reactionForm').addEventListener('input', reactionPreview);
   el('reactionForm').addEventListener('change', reactionPreview);
   el('reactionForm').onsubmit = event => {
@@ -603,6 +729,10 @@
     el('rcHeadline').value = spec.headline || ''; el('rcDuration').value = spec.duration ?? '';
     setRadio('rcLayout', spec.layout || 'stacked'); lastLayout = spec.layout || 'stacked';
     el('rcFit').value = spec.fit || 'cover'; el('rcNormalize').checked = spec.normalize_audio !== false;
+    el('rcBandHeight').value = spec.band_height ?? 52; el('rcBandPosition').value = spec.band_position ?? 46;
+    el('rcBadge').value = spec.badge ?? 'VS'; el('rcWatermark').value = spec.watermark || ''; el('rcWatermarkOpacity').value = spec.watermark_opacity ?? 40;
+    el('rcWatermarkFont').value = spec.watermark_font || 'Arial'; el('rcTitleFont').value = spec.headline_font || 'Arial';
+    el('rcTitleSize').value = spec.headline_size ?? 58; el('rcTitlePosition').value = spec.headline_position ?? 4;
     el('rcCaptions').value = spec.captions || 'none';
     setSide('top', spec.top); setSide('bottom', spec.bottom);
     reactionMusic.set(spec); reactionPreview();

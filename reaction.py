@@ -1,9 +1,11 @@
 """Reação e comparação: dois vídeos num único quadro vertical.
 
-Dois arranjos. "stacked" é o duo: em cima o que está sendo reagido, embaixo quem
+Três arranjos. "stacked" é o duo: em cima o que está sendo reagido, embaixo quem
 reage. "side" é o antes e depois: esquerda e direita, com um divisor no meio,
-para tutoriais, reformas e maquiagem. Os campos continuam `top` e `bottom`; no
-lado a lado eles valem esquerda e direita.
+para tutoriais, reformas e maquiagem. "vs" é a disputa: os dois lado a lado numa
+faixa no meio da tela, com o resto preenchido pelo próprio vídeo desfocado, um
+selo entre eles e o seu @ no rodapé. Os campos continuam `top` e `bottom`; nos
+dois arranjos horizontais eles valem esquerda e direita.
 
 As duas fontes chegam de plataformas diferentes, com resolução, cadência e volume
 próprios — por isso cada metade passa pela normalização comum antes de juntar, e
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import time
 from pathlib import Path
 from typing import Literal
@@ -29,6 +32,7 @@ from .editor import atomic_json
 from .montage import (PLAY_H, PLAY_W, MusicOptions, add_music, ass_document, ffmpeg, fetch_source,
                       is_tiktok_url, music_path, normalize, text_literal)
 from .probe import probe
+from .topfive import FontName
 
 # Metade de cima e metade de baixo do canvas de referência.
 _HALF = PLAY_H // 2
@@ -61,9 +65,20 @@ class Side(BaseModel):
 class Reaction(MusicOptions):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     headline: str = Field(default="", max_length=80)
+    headline_font: FontName = "Arial"
+    headline_size: int = Field(default=58, ge=36, le=96)
+    # Altura do topo do título, em % da tela.
+    headline_position: int = Field(default=4, ge=2, le=40)
     top: Side
     bottom: Side
-    layout: Literal["stacked", "side"] = "stacked"
+    layout: Literal["stacked", "side", "vs"] = "stacked"
+    # Só no VS: altura e centro da faixa dos dois vídeos e o selo entre eles.
+    band_height: int = Field(default=52, ge=30, le=80)
+    band_position: int = Field(default=46, ge=20, le=80)
+    badge: str = Field(default="VS", max_length=8)
+    watermark: str = Field(default="", max_length=32)
+    watermark_opacity: int = Field(default=40, ge=15, le=80)
+    watermark_font: FontName = "Arial"
     # Quanto tempo do encontro entra no Short. `None` usa o menor dos dois vídeos.
     duration: float | None = Field(default=None, ge=1, le=180, allow_inf_nan=False)
     fit: Literal["cover", "contain"] = "cover"
@@ -76,9 +91,32 @@ class Reaction(MusicOptions):
     def tidy(cls, value):
         return " ".join(value.split())
 
+    @field_validator("badge")
+    @classmethod
+    def badge_text(cls, value):
+        value = " ".join(value.split())
+        if any(ord(c) < 32 for c in value):
+            raise ValueError("O selo não pode ter quebra de linha")
+        return value
+
+    @field_validator("watermark")
+    @classmethod
+    def watermark_text(cls, value):
+        value = value.lstrip("@")
+        if value and not re.fullmatch(r"[\w.\-]{1,31}", value):
+            raise ValueError("Use letras, números, ponto, hífen ou sublinhado no seu @, sem espaços")
+        return "@" + value if value else ""
+
+
+def band_box(spec: "Reaction", width: int, height: int) -> tuple[int, int, int]:
+    """Faixa do VS: largura cheia, altura escolhida e centro na altura pedida."""
+    band_height = max(2, min(height, round(height*spec.band_height/100)) // 2 * 2)
+    top = min(max(0, round(height*spec.band_position/100 - band_height/2)), height-band_height)
+    return width, band_height, top
+
 
 def side_name(layout: str, name: str) -> str:
-    if layout == "side":
+    if layout in ("side", "vs"):
         return "da esquerda" if name == "top" else "da direita"
     return "de cima" if name == "top" else "de baixo"
 
@@ -97,10 +135,34 @@ def labels_ass(spec: Reaction, duration: float, path: Path) -> Path:
     events: list[str] = []
     if spec.headline:
         events.append(f"Dialogue: 1,0:00:00.00,{end},Title,,0,0,0,,"
-                      f"{{\\pos({PLAY_W // 2},70)\\an8}}{text_literal(spec.headline)}\n")
-    if spec.layout == "side":
+                      f"{{\\pos({PLAY_W // 2},{round(PLAY_H*spec.headline_position/100)})\\an8"
+                      f"\\fn{spec.headline_font}\\fs{spec.headline_size}}}{text_literal(spec.headline)}\n")
+    if spec.watermark:
+        alpha = round(255*(1-spec.watermark_opacity/100))
+        events.append(f"Dialogue: 3,0:00:00.00,{end},Tag,,0,0,0,,"
+                      f"{{\\an5\\pos({PLAY_W//2},{PLAY_H-120})\\fn{spec.watermark_font}\\fs46\\bord2\\shad1"
+                      f"\\alpha&H{alpha:02X}&}}{text_literal(spec.watermark)}\n")
+    if spec.layout == "vs":
+        # Coordenadas sempre no canvas de referência: o libass escala junto com o vídeo.
+        _, band_height, top = band_box(spec, PLAY_W, PLAY_H)
+        middle, bottom = top + band_height//2, top + band_height
+        for side, x in ((spec.top, PLAY_W//4), (spec.bottom, 3*PLAY_W//4)):
+            if side.label:
+                events.append(f"Dialogue: 2,0:00:00.00,{end},Badge,,0,0,0,,"
+                              f"{{\\pos({x},{min(bottom + 26, PLAY_H - 200)})\\an8}}{text_literal(side.label.upper())}\n")
+        if spec.badge:
+            # O selo pulsa: um evento por batida, porque o ASS não repete animação sozinho.
+            beat, clock = 1.2, 0.0
+            while clock < duration:
+                stop = min(clock + beat, duration)
+                events.append(f"Dialogue: 4,{_ts(clock)},{_ts(stop)},Badge,,0,0,0,,"
+                              f"{{\\an5\\pos({PLAY_W//2},{middle})\\fs150\\bord7\\shad0\\blur2"
+                              f"\\t(0,190,\\fscx122\\fscy122)\\t(190,430,\\fscx100\\fscy100)}}"
+                              f"{text_literal(spec.badge)}\n")
+                clock = stop
+    elif spec.layout == "side":
         # Rótulo centrado em cada coluna, abaixo do título quando ele existe.
-        y = 200 if spec.headline else 90
+        y = round(PLAY_H*spec.headline_position/100) + spec.headline_size*2 if spec.headline else 90
         for side, x in ((spec.top, PLAY_W // 4), (spec.bottom, 3 * PLAY_W // 4)):
             if side.label:
                 events.append(f"Dialogue: 2,0:00:00.00,{end},Badge,,0,0,0,,"
@@ -149,8 +211,9 @@ def render_reaction(spec: Reaction, sources: dict[str, Path], directory: Path,
     clips = directory / "clips"
     work.mkdir(parents=True, exist_ok=True)
     clips.mkdir(parents=True, exist_ok=True)
-    side_by_side = spec.layout == "side"
-    tile_w, tile_h = (width // 2, height) if side_by_side else (width, height // 2)
+    side_by_side = spec.layout in ("side", "vs")
+    band = band_box(spec, width, height) if spec.layout == "vs" else None
+    tile_w, tile_h = (width // 2, band[1] if band else height) if side_by_side else (width, height // 2)
     music = music_path(spec.music) if spec.music else None
 
     sides = {"top": spec.top, "bottom": spec.bottom}
@@ -184,7 +247,14 @@ def render_reaction(spec: Reaction, sources: dict[str, Path], directory: Path,
 
     progress("juntando e somando o áudio", .80)
     labels_ass(spec, duration, work / "labels.ass")
-    if side_by_side:
+    if spec.layout == "vs":
+        # Os dois vídeos numa faixa central; o resto da tela é a própria faixa, ampliada e desfocada.
+        divider = max(2, round(_DIVIDER * width / PLAY_W) // 2 * 2)
+        video = (f"[0:v][1:v]hstack=inputs=2,drawbox=x=iw/2-{divider // 2}:y=0:w={divider}:h=ih:"
+                 f"color=white@0.85:t=fill,split=2[band][blur];"
+                 f"[blur]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},"
+                 f"boxblur=22:2[bg];[bg][band]overlay=0:{band[2]}[joined]")
+    elif side_by_side:
         divider = max(2, round(_DIVIDER * width / PLAY_W) // 2 * 2)
         video = (f"[0:v][1:v]hstack=inputs=2,drawbox=x=iw/2-{divider // 2}:y=0:w={divider}:h=ih:"
                  f"color=white@0.9:t=fill[joined]")
@@ -216,9 +286,12 @@ def render_reaction(spec: Reaction, sources: dict[str, Path], directory: Path,
     ffmpeg(["-i", str(final), "-frames:v", "1", "-update", "1", str(clips / "reaction-cover.jpg")], work)
 
     names = {"top": "Esquerda", "bottom": "Direita"} if side_by_side else {"top": "Cima", "bottom": "Baixo"}
+    if spec.layout == "vs":
+        fallback_title = f"{spec.top.label or 'Lado A'} {spec.badge or 'VS'} {spec.bottom.label or 'Lado B'}"
     creditos = "\n".join(f"{names[n]}: {s.label or 'sem rótulo'} — {s.url}" for n, s in sides.items())
     fallback = ("Antes", "Depois") if side_by_side else ("Original", "Reação")
-    titulo = spec.headline or f"{spec.top.label or fallback[0]} + {spec.bottom.label or fallback[1]}"
+    titulo = spec.headline or (fallback_title if spec.layout == "vs"
+                               else f"{spec.top.label or fallback[0]} + {spec.bottom.label or fallback[1]}")
     return {"kind": "reaction", "source_duration": duration, "source_resolution": f"{width}×{height}",
             "provider": "montagem de reação", "headline": spec.headline, "layout": spec.layout,
             "captions": spec.captions, "music": bool(music),

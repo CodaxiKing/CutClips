@@ -336,3 +336,31 @@ def test_youtube_shorts_links_are_accepted_downloaded_and_probed(client,workdir,
     with pytest.raises(t5.DownloadError):
         t5.download_source(short,workdir/'long')
     assert not (workdir/'long/long.mp4').exists()
+
+
+def test_card_layout_puts_a_smaller_rounded_video_over_the_blurred_background(workdir):
+    import cv2
+    source=workdir/'portrait.mp4'
+    t5.ffmpeg(['-f','lavfi','-i','testsrc2=size=180x320:rate=30:duration=1.4',
+               '-f','lavfi','-i','sine=frequency=440:duration=1.4',
+               '-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-c:a','aac','-shortest',str(source.resolve())],workdir)
+    value=payload();value['entries']=value['entries'][:3]
+    for entry in value['entries']:entry.update(duration=1)
+    value.update(layout='card',card_scale=60,card_position=30,card_radius=20)
+    spec=t5.TopFive.model_validate(value)
+    box_width,box_height,top,radius=t5.card_box(spec,180,320,270,480)
+    assert (box_width,box_height,radius)==(162,288,20) and top==0  # cartão alto demais desce até o topo
+    t5.render_topfive(spec,[source]*3,workdir,width=270,height=480)
+    frame=workdir/'card.png'
+    t5.ffmpeg(['-ss','0.3','-i',str((workdir/'clips/top5.mp4').resolve()),'-frames:v','1',str(frame.resolve())],workdir)
+    image=cv2.imread(str(frame))
+    assert image.shape[:2]==(480,270)
+    left=(270-box_width)//2
+    corner=image[top+2,left+2].tolist()
+    inside=image[top+radius+8,left+radius+8].tolist()
+    assert corner!=inside  # o canto arredondado mostra o fundo, não o vídeo
+    # O cartão é nítido; o fundo atrás dele é desfocado.
+    sharpness=lambda area:cv2.Laplacian(cv2.cvtColor(area,cv2.COLOR_BGR2GRAY),cv2.CV_64F).var()
+    assert sharpness(image[top+30:top+box_height-30,left+30:left+box_width-30])>sharpness(image[top+box_height+20:480-20,10:260])
+    with pytest.raises(ValidationError):
+        t5.TopFive.model_validate({**value,'card_scale':20})

@@ -51,6 +51,8 @@ from api.topfive import router as topfive_router
 app.include_router(topfive_router)
 from api.topfive_tools import router as topfive_tools_router
 app.include_router(topfive_tools_router)
+from api.preview import router as preview_router
+app.include_router(preview_router)
 from api.trending import router as trending_router
 app.include_router(trending_router)
 from api.montages import router as montages_router
