@@ -262,6 +262,13 @@ def test_intro_name_animation_and_watermark(workdir):
     t5.ranking_ass(spec,timeline,path)
     text=path.read_text(encoding='utf-8')
     assert spec.watermark=='@meuperfil'
+    # A fonte do @ é escolhida à parte do título e do ranking.
+    assert spec.watermark_font=='Arial' and '\\fnArial\\fs44' in text
+    marked=t5.TopFive.model_validate({**value,'watermark':'meuperfil','watermark_font':'Impact'})
+    t5.ranking_ass(marked,timeline,workdir/'wm.ass')
+    assert '\\fnImpact\\fs44' in (workdir/'wm.ass').read_text(encoding='utf-8')
+    with pytest.raises(ValidationError):
+        t5.TopFive.model_validate({**value,'watermark_font':'Wingdings'})
     assert t5.TopFive.model_validate({**value,'watermark':'@Frieren-Hub'}).watermark=='@Frieren-Hub'
     assert r'\move(540,-420,540,115,0,550)' in text
     assert text.count(r'\move(-180,')==5

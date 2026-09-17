@@ -27,7 +27,7 @@
 .t5-trim-heading{margin-top:18px;color:#efd080;font-size:12px;font-weight:600}
 .t5-trim-summary{font-size:11px;color:#b6b6c3;margin:10px 0 0}
 #topfive input:invalid:not(:placeholder-shown){border-color:#db7777}
-.t5-watermark{position:absolute;top:85.42%;left:50%;transform:translate(-50%,-50%);font:700 4.07cqw Arial,sans-serif;color:#fff;text-shadow:1px 1px 2px #111;white-space:nowrap;max-width:90%;overflow:hidden}
+.t5-watermark{position:absolute;top:85.42%;left:50%;transform:translate(-50%,-50%);font:700 4.07cqw var(--t5-watermark-font,Arial),sans-serif;color:#fff;text-shadow:1px 1px 2px #111;white-space:nowrap;max-width:90%;overflow:hidden}
 .t5-replay{width:100%;margin-top:12px}
 .t5-phone[data-animate=true] li.active span{animation:t5-name-in .42s cubic-bezier(.2,.7,.25,1) both}
 .t5-phone.t5-playing[data-intro=true][data-opening=true] .t5-preview-title{animation:t5-title-in .55s cubic-bezier(.2,.7,.25,1) both}
@@ -94,3 +94,18 @@
 .t5-source strong{display:block;font-size:13px;color:#efd080;font-variant-numeric:tabular-nums}
 .t5-source small{display:block;font-size:11px;color:#8d8d98;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .t5-source .btn{flex-shrink:0}
+
+/* Escolher o trecho arrastando, e reordenar posições. */
+.t5-entry-side{display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0}
+.t5-move{display:flex;flex-direction:column;gap:4px}
+.t5-move button{width:32px;height:22px;padding:0;border:1px solid #ffffff17;border-radius:7px;background:#19191d;color:#c8c8d2;font-size:12px;line-height:1;cursor:pointer}
+.t5-move button:hover:not(:disabled){border-color:#cfac60;color:#efd080}
+.t5-move button:disabled{opacity:.3;cursor:default}
+.t5-trimbar{margin-top:14px}
+.t5-trimbar[hidden]{display:none}
+.t5-trimbar-track{position:relative;height:26px;border:1px solid #ffffff17;border-radius:9px;background:#19191d;cursor:pointer;touch-action:none}
+.t5-trimbar-range{position:absolute;top:0;bottom:0;background:#efd08033;border-inline:1px solid #efd080;pointer-events:none}
+.t5-trimbar-head{position:absolute;top:2px;bottom:2px;width:2px;background:#fff9;transform:translateX(-1px);pointer-events:none}
+.t5-trimbar-handle{position:absolute;top:-3px;width:14px;height:32px;margin-left:-7px;padding:0;border:1px solid #efd080;border-radius:6px;background:#efd080;cursor:ew-resize;touch-action:none}
+.t5-trimbar-handle:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.t5-trimbar-info{margin:8px 0 0;font-size:11px;color:#b6b6c3;font-variant-numeric:tabular-nums}

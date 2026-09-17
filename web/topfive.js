@@ -62,7 +62,7 @@
     f.end.addEventListener('change',()=>{t.manualEnd=f.end.value!=='';t.limits();});
     return t;
   }
-  el('t5Entries').innerHTML=Array.from({length:5},(_,i)=>`<fieldset class="t5-entry"><legend>Posição ${i+1}</legend><span class="t5-number" aria-hidden="true">${i+1}</span><div class="t5-entry-fields"><label for="t5Url${i}">Link do TikTok ou YouTube Shorts<input id="t5Url${i}" type="url" required maxlength="600" placeholder="https://www.tiktok.com/@perfil/video/… ou youtube.com/shorts/…"></label><label for="t5Name${i}">Nome ao lado do número<input id="t5Name${i}" required maxlength="32" placeholder="Ex.: O gol impossível"></label><div class="t5-trim-heading">✂ Trecho automático · até ${MAX_CLIP}s, ajuste se quiser</div><div class="t5-trim"><label>Início (segundos)<input id="t5Start${i}" type="number" min="0" max="600" step="0.01" value="0"></label><label>Fim (segundos)<input id="t5End${i}" type="number" min="0.5" max="${MAX_CLIP}" step="0.01" placeholder="Automático"></label></div><p class="t5-trim-summary" id="t5TrimSummary${i}"></p><div class="t5-source" id="t5Source${i}" hidden></div></div></fieldset>`).join('');
+  el('t5Entries').innerHTML=Array.from({length:5},(_,i)=>`<fieldset class="t5-entry"><legend>Posição ${i+1}</legend><div class="t5-entry-side"><span class="t5-number" aria-hidden="true">${i+1}</span><div class="t5-move"><button type="button" data-t5-up="${i}" aria-label="Trocar a posição ${i+1} com a de cima" title="Subir">↑</button><button type="button" data-t5-down="${i}" aria-label="Trocar a posição ${i+1} com a de baixo" title="Descer">↓</button></div></div><div class="t5-entry-fields"><label for="t5Url${i}">Link do TikTok ou YouTube Shorts<input id="t5Url${i}" type="url" required maxlength="600" placeholder="https://www.tiktok.com/@perfil/video/… ou youtube.com/shorts/…"></label><label for="t5Name${i}">Nome ao lado do número<input id="t5Name${i}" required maxlength="32" placeholder="Ex.: O gol impossível"></label><div class="t5-trim-heading">✂ Trecho automático · até ${MAX_CLIP}s, ajuste se quiser</div><div class="t5-trim"><label>Início (segundos)<input id="t5Start${i}" type="number" min="0" max="600" step="0.01" value="0"></label><label>Fim (segundos)<input id="t5End${i}" type="number" min="0.5" max="${MAX_CLIP}" step="0.01" placeholder="Automático"></label></div><p class="t5-trim-summary" id="t5TrimSummary${i}"></p><div class="t5-source" id="t5Source${i}" hidden></div></div></fieldset>`).join('');
   const trims=Array.from({length:5},(_,i)=>trimmer({url:el('t5Url'+i),start:el('t5Start'+i),end:el('t5End'+i)},()=>preview()));
   // Vídeos escolhidos em Descobrir trazem um MP4 tocável: a prévia mostra o trecho real e
   // cada posição pode ser trocada pelo próximo vídeo mais visto do mesmo tópico.
@@ -115,7 +115,27 @@
     el('t5PreviewStep').value=order.indexOf(i+1);player.key='';player.finished=false;preview(true);
   }
   for(let i=0;i<5;i++)el('t5Url'+i).addEventListener('input',()=>{if(media[i]&&el('t5Url'+i).value.trim()!==media[i].url){media[i]=null;showSource(i);}});
-  el('t5Entries').addEventListener('click',event=>{const button=event.target.closest('[data-t5-swap]');if(button)swap(Number(button.dataset.t5Swap));});
+  // Reordenar: troca duas posições inteiras (link, nome, trecho, áudio e autorização).
+  function move(i,step){
+    const count=Number(el('t5Count').value),j=i+step;
+    if(j<0||j>=count)return;
+    const spec=data(),lengths=trims.map(t=>t.length),sources=[...media];
+    [spec.entries[i],spec.entries[j]]=[spec.entries[j],spec.entries[i]];
+    [lengths[i],lengths[j]]=[lengths[j],lengths[i]];
+    [sources[i],sources[j]]=[sources[j],sources[i]];
+    fill(spec,sources);
+    // A duração de cada vídeo já era conhecida: evita consultar tudo de novo.
+    lengths.forEach((length,n)=>{if(length)trims[n].known(el('t5Url'+n).value.trim(),length);});
+    const order=Array.from({length:count},(_,n)=>n+1);if(el('t5Order').value==='countdown')order.reverse();
+    el('t5PreviewStep').value=order.indexOf(j+1);player.key='';player.finished=false;preview(true);
+    el('t5Url'+j).closest('.t5-entry').querySelector(`[data-t5-${step<0?'up':'down'}]`).focus();
+    window.toast?.(`Posição ${i+1} ↔ posição ${j+1}`);
+  }
+  el('t5Entries').addEventListener('click',event=>{
+    const swapButton=event.target.closest('[data-t5-swap]');if(swapButton)return swap(Number(swapButton.dataset.t5Swap));
+    const up=event.target.closest('[data-t5-up]'),down=event.target.closest('[data-t5-down]');
+    if(up)move(Number(up.dataset.t5Up),-1);else if(down)move(Number(down.dataset.t5Down),1);
+  });
   const player={video:el('t5PreviewVideo'),bg:el('t5PreviewBg'),playing:false,finished:false,key:'',end:0,timer:0,frame:0,token:0};
   function drawBackground(){
     const {video,bg}=player,vw=video.videoWidth,vh=video.videoHeight;
@@ -154,6 +174,59 @@
     };
     if(video.readyState>=1)seek();else video.addEventListener('loadedmetadata',seek,{once:true});
   }
+  // Barra do trecho: mostra e edita início e fim do vídeo do passo simulado.
+  const bar={track:el('t5TrimTrack'),range:el('t5TrimRange'),head:el('t5TrimHead'),start:el('t5TrimStart'),end:el('t5TrimEnd'),index:0,length:0};
+  const sec=v=>`${(Math.round(v*10)/10).toFixed(1).replace('.',',')}s`;
+  const pct=(v,total)=>Math.max(0,Math.min(100,total?v/total*100:0));
+  function renderTrimBar(spec,rank){
+    const i=rank-1,length=trims[i]?.length||0,entry=spec.entries[i]||{};
+    bar.index=i;bar.length=length;
+    el('t5TrimBar').hidden=!length;
+    if(!length)return;
+    const from=entry.start||0,to=Math.min(from+(entry.duration??MAX_CLIP),length);
+    bar.range.style.left=pct(from,length)+'%';bar.range.style.width=Math.max(0,pct(to,length)-pct(from,length))+'%';
+    bar.start.style.left=pct(from,length)+'%';bar.end.style.left=pct(to,length)+'%';
+    [[bar.start,from],[bar.end,to]].forEach(([node,value])=>{node.setAttribute('aria-valuemax',round2(length));node.setAttribute('aria-valuenow',round2(value));node.setAttribute('aria-valuetext',sec(value));});
+    el('t5TrimInfo').textContent=`Posição ${rank} · trecho ${sec(from)} → ${sec(to)} de ${clock(length)} · ${round2(to-from)}s no ranking`;
+  }
+  function applyTrim(handle,value){
+    const i=bar.index,length=bar.length,trim=trims[i];
+    if(!length)return;
+    let from=Number(el('t5Start'+i).value)||0;
+    let to=el('t5End'+i).value===''?Math.min(from+MAX_CLIP,length):Number(el('t5End'+i).value);
+    if(handle==='start'){
+      from=Math.max(0,Math.min(value,round2(length-.5)));
+      to=Math.min(Math.max(to,from+.5),Math.min(from+MAX_CLIP,length));
+    }else to=Math.max(from+.5,Math.min(value,Math.min(from+MAX_CLIP,length)));
+    el('t5Start'+i).value=round2(from);el('t5End'+i).value=round2(to);
+    trim.manualEnd=true;trim.limits();
+    preview();
+    // Mostra o quadro que está sendo ajustado, sem recarregar o vídeo.
+    const video=player.video;
+    if(video.getAttribute('src')&&video.readyState>=1)video.currentTime=handle==='start'?from:Math.max(from,to-.25);
+  }
+  function fromPointer(event){
+    const box=bar.track.getBoundingClientRect();
+    return round2(Math.max(0,Math.min(1,(event.clientX-box.left)/box.width))*bar.length);
+  }
+  [['start',bar.start],['end',bar.end]].forEach(([handle,node])=>{
+    node.addEventListener('pointerdown',event=>{
+      if(!bar.length)return;
+      event.preventDefault();stopPlayer();node.setPointerCapture(event.pointerId);node.dataset.dragging='true';
+    });
+    node.addEventListener('pointermove',event=>{if(node.dataset.dragging==='true')applyTrim(handle,fromPointer(event));});
+    const stop=event=>{if(node.dataset.dragging==='true'){node.dataset.dragging='false';node.releasePointerCapture?.(event.pointerId);}};
+    node.addEventListener('pointerup',stop);node.addEventListener('pointercancel',stop);
+    node.addEventListener('keydown',event=>{
+      const step=event.shiftKey?1:.1,now=Number(node.getAttribute('aria-valuenow'))||0;
+      const moves={ArrowLeft:now-step,ArrowRight:now+step,ArrowDown:now-step,ArrowUp:now+step,Home:0,End:bar.length};
+      if(!(event.key in moves))return;
+      event.preventDefault();applyTrim(handle,round2(moves[event.key]));
+    });
+  });
+  // Clicar na barra move o início para ali.
+  bar.track.addEventListener('pointerdown',event=>{if(event.target===bar.track||event.target===bar.range)applyTrim('start',fromPointer(event));});
+  player.video.addEventListener('timeupdate',()=>{bar.head.style.left=pct(player.video.currentTime,bar.length)+'%';});
   player.video.addEventListener('seeked',drawBackground);player.video.addEventListener('loadeddata',drawBackground);player.video.addEventListener('play',drawLoop);
   player.video.addEventListener('timeupdate',()=>{if(player.playing&&player.video.currentTime>=player.end-.04)advance();});
   player.video.addEventListener('ended',()=>{if(player.playing)advance();});
@@ -169,11 +242,12 @@
   };
   el('t5Sound').onclick=()=>{const on=player.video.muted;player.video.muted=!on;el('t5Sound').setAttribute('aria-pressed',String(on));el('t5Sound').textContent=on?'🔊 Som':'🔇 Mudo';};
   window.addEventListener('hashchange',()=>{if(location.hash!=='#/top5'&&player.playing)stopPlayer();});
-  function data(){return {headline:el('t5Headline').value.trim(),order:el('t5Order').value,layout:el('t5Layout').value,normalize_audio:el('t5Normalize').checked,title_font:el('t5TitleFont').value,rank_font:el('t5RankFont').value,text_effect:el('t5Effect').value,accent_color:el('t5Accent').value,title_color:el('t5TitleColor').value,rank_color:el('t5RankColor').value,outline_color:el('t5OutlineColor').value,outline_width:Number(el('t5OutlineWidth').value),shadow_color:el('t5ShadowColor').value,shadow_depth:Number(el('t5ShadowDepth').value),animation_style:el('t5AnimationStyle').value,title_size:Number(el('t5TitleSize').value),rank_size:Number(el('t5RankSize').value),rank_position:Number(el('t5RankPosition').value),animate_reveal:el('t5Animate').checked,animate_intro:el('t5Intro').checked,watermark:el('t5Watermark').value.trim(),watermark_opacity:Number(el('t5WatermarkOpacity').value),entries:Array.from({length:Number(el('t5Count').value)},(_,i)=>({...window.TopFiveTools?.entry(i),url:el('t5Url'+i).value.trim(),name:el('t5Name'+i).value.trim(),start:Number(el('t5Start'+i).value||0),duration:el('t5End'+i).value===''?null:round2(Number(el('t5End'+i).value)-Number(el('t5Start'+i).value||0))}))};}
+  function data(){return {headline:el('t5Headline').value.trim(),order:el('t5Order').value,layout:el('t5Layout').value,normalize_audio:el('t5Normalize').checked,title_font:el('t5TitleFont').value,rank_font:el('t5RankFont').value,text_effect:el('t5Effect').value,accent_color:el('t5Accent').value,title_color:el('t5TitleColor').value,rank_color:el('t5RankColor').value,outline_color:el('t5OutlineColor').value,outline_width:Number(el('t5OutlineWidth').value),shadow_color:el('t5ShadowColor').value,shadow_depth:Number(el('t5ShadowDepth').value),animation_style:el('t5AnimationStyle').value,title_size:Number(el('t5TitleSize').value),rank_size:Number(el('t5RankSize').value),rank_position:Number(el('t5RankPosition').value),animate_reveal:el('t5Animate').checked,animate_intro:el('t5Intro').checked,watermark:el('t5Watermark').value.trim(),watermark_opacity:Number(el('t5WatermarkOpacity').value),watermark_font:el('t5WatermarkFont').value,entries:Array.from({length:Number(el('t5Count').value)},(_,i)=>({...window.TopFiveTools?.entry(i),url:el('t5Url'+i).value.trim(),name:el('t5Name'+i).value.trim(),start:Number(el('t5Start'+i).value||0),duration:el('t5End'+i).value===''?null:round2(Number(el('t5End'+i).value)-Number(el('t5Start'+i).value||0))}))};}
   function preview(replay=false){
     const spec=data(),count=spec.entries.length;
     el('t5Watermark').setCustomValidity(!spec.watermark||/^@?[\p{L}\p{N}_.-]{1,31}$/u.test(spec.watermark)?'':'Use até 31 letras, números, pontos, hífens ou sublinhados, sem espaços.');
-    document.querySelectorAll('.t5-entry').forEach((row,i)=>{row.hidden=i>=count;row.querySelectorAll('input').forEach(input=>input.disabled=i>=count);});
+    el('t5Entries').querySelectorAll('.t5-entry').forEach((row,i)=>{row.hidden=i>=count;row.querySelectorAll('input').forEach(input=>input.disabled=i>=count);
+      row.querySelector('[data-t5-up]').disabled=i===0;row.querySelector('[data-t5-down]').disabled=i>=count-1;});
     const order=Array.from({length:count},(_,i)=>i+1);if(spec.order==='countdown')order.reverse();
     const step=Math.min(Number(el('t5PreviewStep').value)||0,count-1),rank=order[step],seen=order.slice(0,step+1);
     el('t5PreviewStep').innerHTML=order.map((r,i)=>`<option value="${i}">Trecho ${i+1} · posição ${r}</option>`).join('');el('t5PreviewStep').value=step;
@@ -183,7 +257,7 @@
     phone.style.setProperty('--t5-rank-color',spec.rank_color);phone.style.setProperty('--t5-outline-color',spec.outline_color);phone.style.setProperty('--t5-outline-width',`${spec.outline_width/10.8}cqw`);phone.style.setProperty('--t5-shadow-color',spec.shadow_color);phone.style.setProperty('--t5-shadow-depth',`${spec.shadow_depth/10.8}cqw`);
     el('t5OutlineValue').textContent=spec.outline_width;el('t5ShadowValue').textContent=spec.shadow_depth;phone.dataset.animate=String(spec.animate_reveal);phone.dataset.intro=String(spec.animate_intro);phone.dataset.opening=String(step===0);
     spec.entries.forEach((item,i)=>{el('t5TrimSummary'+i).textContent=trims[i].check();});
-    el('t5PreviewWatermark').textContent=spec.watermark?'@'+spec.watermark.replace(/^@+/,''):'';el('t5PreviewWatermark').style.opacity=spec.watermark_opacity/100;
+    el('t5PreviewWatermark').textContent=spec.watermark?'@'+spec.watermark.replace(/^@+/,''):'';el('t5PreviewWatermark').style.opacity=spec.watermark_opacity/100;phone.style.setProperty('--t5-watermark-font',spec.watermark_font);
     if(replay===true){phone.classList.remove('t5-playing');void phone.offsetWidth;phone.classList.add('t5-playing');}
     phone.style.setProperty('--t5-accent',spec.accent_color);phone.style.setProperty('--t5-title-color',spec.title_color);
     phone.style.setProperty('--t5-title-font',spec.title_font);phone.style.setProperty('--t5-rank-font',spec.rank_font);
@@ -193,14 +267,14 @@
     el('t5PreviewTitle').textContent=spec.headline||'Sua frase aparece aqui';
     el('t5PreviewClip').textContent=`Vídeo da posição ${rank}`;
     el('t5PreviewRanks').innerHTML=spec.entries.map((item,i)=>`<li class="${i+1===rank?'active':seen.includes(i+1)?'revealed':'future'}"><b style="--t5-delay:${i*45}ms">${i+1}.</b><span>${seen.includes(i+1)?esc(item.name||`Nome do vídeo ${i+1}`):''}</span></li>`).join('');
-    syncVideo(spec,rank);
+    syncVideo(spec,rank);renderTrimBar(spec,rank);
   }
   function fill(spec,sources=[]){
     window.TopFiveTools?.fill(spec.entries||[]);
     media=Array.from({length:5},(_,i)=>sources[i]||null);player.key='';
     el('t5Preset').value='custom';
     el('t5Count').value=Math.max(3,Math.min(5,spec.entries?.length||5));
-    const controls={t5RankColor:spec.rank_color||'#ffffff',t5OutlineColor:spec.outline_color||'#101010',t5OutlineWidth:spec.outline_width??5,t5ShadowColor:spec.shadow_color||'#000000',t5ShadowDepth:spec.shadow_depth??2,t5AnimationStyle:spec.animation_style||'slide',t5TitleFont:spec.title_font||'Impact',t5RankFont:spec.rank_font||'Arial',t5Effect:spec.text_effect||'outline',t5Accent:spec.accent_color||'#ffdd45',t5TitleColor:spec.title_color||'#ffffff',t5TitleSize:spec.title_size||72,t5RankSize:spec.rank_size||54,t5RankPosition:spec.rank_position||50,t5Watermark:spec.watermark||'',t5WatermarkOpacity:spec.watermark_opacity??40};
+    const controls={t5RankColor:spec.rank_color||'#ffffff',t5OutlineColor:spec.outline_color||'#101010',t5OutlineWidth:spec.outline_width??5,t5ShadowColor:spec.shadow_color||'#000000',t5ShadowDepth:spec.shadow_depth??2,t5AnimationStyle:spec.animation_style||'slide',t5TitleFont:spec.title_font||'Impact',t5RankFont:spec.rank_font||'Arial',t5Effect:spec.text_effect||'outline',t5Accent:spec.accent_color||'#ffdd45',t5TitleColor:spec.title_color||'#ffffff',t5TitleSize:spec.title_size||72,t5RankSize:spec.rank_size||54,t5RankPosition:spec.rank_position||50,t5Watermark:spec.watermark||'',t5WatermarkOpacity:spec.watermark_opacity??40,t5WatermarkFont:spec.watermark_font||'Arial'};
     Object.entries(controls).forEach(([id,value])=>el(id).value=value);el('t5Animate').checked=spec.animate_reveal!==false;el('t5Intro').checked=spec.animate_intro!==false;
     el('t5Headline').value=spec.headline||'';el('t5Order').value=spec.order||'ascending';el('t5Layout').value=spec.layout||'fit';el('t5Normalize').checked=spec.normalize_audio!==false;
     spec.entries?.slice(0,5).forEach((e,i)=>{el('t5Url'+i).value=e.url||'';el('t5Name'+i).value=e.name||'';el('t5Start'+i).value=e.start||0;el('t5End'+i).value=e.duration==null?'':Number(((e.start||0)+e.duration).toFixed(2));const trim=trims[i];trim.manualEnd=e.duration!=null;trim.probed=undefined;trim.limits();if(media[i])measure(i);else trim.probe();});showPool();preview();
