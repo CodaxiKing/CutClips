@@ -75,7 +75,7 @@ PIPELINE = (("transcription", 1), ("analysis", 2), ("tracking", 3), ("render", 4
 
 
 # Montagens não transcrevem nem analisam: são uma etapa só, com o nome do tipo.
-MONTAGES = {"top5", "quiz", "reaction"}
+MONTAGES = {"top5", "quiz", "reaction", "narration"}
 
 
 def pipeline_for(settings):

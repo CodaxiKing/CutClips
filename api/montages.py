@@ -10,8 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from starlette.concurrency import run_in_threadpool
 
 from api import db
-from clipforge import backgrounds, montage, quiz_ai, quiz_bank, sounds
+from clipforge import backgrounds, montage, narrate, quiz_ai, quiz_bank, sounds
 from clipforge.quiz import Quiz
+from clipforge.narrate import Narration
 from clipforge.reaction import Reaction
 from clipforge.select import ProviderError
 
@@ -240,6 +241,27 @@ def create_reaction(data: Reaction):
     title = data.headline or f"{data.top.label or fallback[0]} + {data.bottom.label or fallback[1]}"
     job_id = db.create_job("reaction", title=title, settings={"kind": "reaction", "reaction": data.model_dump()})
     return {"job_id": job_id, "status": "queued"}
+
+
+@router.post("/api/narration", status_code=202)
+def create_narration(data: Narration):
+    _check_music(data.music)
+    if not data.script and not os.getenv("ANTHROPIC_API_KEY", "").strip()             and not os.getenv("OPENAI_API_KEY", "").strip():
+        # Sem IA e sem roteiro não há o que narrar; dizer isso agora poupa um job
+        # que só falharia no worker vários segundos depois.
+        raise HTTPException(422, "Escreva o roteiro ou configure a chave da IA no .env "
+                                 "para que ela escreva por você.")
+    job_id = db.create_job("narration", title=data.subject,
+                           settings={"kind": "narration", "narration": data.model_dump()})
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.get("/api/narration/voices")
+def narration_voices() -> dict:
+    """Vozes do sistema, para a interface oferecer as instaladas de verdade."""
+    voices = narrate.list_voices()
+    return {"voices": voices, "default": next((v for v in voices if "Maria" in v or "Daniel" in v),
+                                              voices[0] if voices else "")}
 
 
 def _check_music(name: str) -> None:

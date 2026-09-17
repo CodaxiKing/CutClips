@@ -301,7 +301,7 @@
       <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M12 9.5v13l11-6.5z" fill="#000"/></svg>
       ClipForge
     </a>
-    <div class="nav-links"><a href="#/" data-nav="home">Início</a><a href="#/" data-scroll="projetos" data-nav="projects">Projetos</a><a href="#/top5" data-nav="top5">Ranking</a><a href="#/quiz" data-nav="quiz">Quiz</a><a href="#/reaction" data-nav="reaction">Reação</a><a href="#/channel" data-nav="channel">Análise do canal</a></div>
+    <div class="nav-links"><a href="#/" data-nav="home">Início</a><a href="#/" data-scroll="projetos" data-nav="projects">Projetos</a><a href="#/top5" data-nav="top5">Ranking</a><a href="#/quiz" data-nav="quiz">Quiz</a><a href="#/reaction" data-nav="reaction">Reação</a><a href="#/narration" data-nav="narration">Narrado</a><a href="#/channel" data-nav="channel">Análise do canal</a></div>
     <span class="status"><i class="dot" id="healthDot"></i><span id="health">conectando…</span></span>
   </div>
 </nav>
@@ -466,6 +466,30 @@
       <button class="btn btn-outline btn-sm mg-swap" type="button" id="rcSwap">⇅ Inverter os vídeos</button>
       <p class="t5-help" id="rcPreviewStatus" role="status" aria-live="polite">Cole os dois links e toque a prévia: baixamos 30 segundos de cada um, em qualidade leve.</p></aside></div>
   </section>
+  <section id="narration" class="montage" hidden>
+    <header class="t5-header"><p class="t5-eyebrow"><span class="page-icon" aria-hidden="true">🎙</span>NARRADO · SEM CÂMERA · 9:16</p><h1>Um tema vira vídeo.<br><span>Roteiro, voz, imagem e legenda.</span></h1><p>Você dá o assunto; a IA escreve o roteiro e os termos de busca, a voz do sistema narra, as imagens vêm do Pexels ou da sua pasta de fundos, e a legenda sai da própria narração.</p></header>
+    <div class="t5-grid"><form id="narrationForm">
+      <div class="t5-panel"><div class="t5-section-title"><span>01</span><div><h2>O tema</h2><p>Uma frase basta. É dela que sai o roteiro.</p></div></div>
+        <label for="nrSubject">Assunto do vídeo</label><input id="nrSubject" maxlength="200" required placeholder="Três curiosidades sobre o fundo do oceano" autocomplete="off">
+        <div class="t5-options" id="nrSentencesRow"><label>Quantas frases<select id="nrSentences"><option value="4">4 frases (~20s)</option><option value="6" selected>6 frases (~30s)</option><option value="8">8 frases (~40s)</option><option value="12">12 frases (~60s)</option></select></label><div></div></div>
+        <details><summary>Escrever o roteiro eu mesmo (opcional)</summary><label for="nrScript">Roteiro</label><textarea id="nrScript" rows="5" maxlength="4000" placeholder="Uma frase por ideia. Deixe vazio para a IA escrever."></textarea></details>
+        <p class="t5-help" id="nrAiNote">A IA escreve o roteiro, o título, a descrição e as hashtags. Precisa da chave configurada no <code>.env</code>.</p>
+        <p class="t5-help" id="nrManualNote" hidden>Roteiro seu: nenhuma chamada de IA. As frases são separadas por ponto.</p></div>
+      <div class="t5-panel"><div class="t5-section-title"><span>02</span><div><h2>Voz e imagens</h2><p>Tudo roda na sua máquina, menos a busca de imagens.</p></div></div>
+        <div class="t5-options"><label>Voz da narração<select id="nrVoice"><option value="">Carregando…</option></select></label><label>De onde vêm as imagens<select id="nrFootage"><option value="auto" selected>Automático (Pexels, senão a pasta)</option><option value="pexels">Só Pexels</option><option value="folder">Só a minha pasta de fundos</option><option value="color">Fundo liso</option></select></label></div>
+        <p class="t5-help" id="nrVoiceHelp" hidden>Nenhuma voz encontrada. No Windows, instale uma voz em Configurações → Hora e idioma → Fala.</p>
+        <div class="t5-options" id="nrTermsRow"><label>Termos de busca (opcional)<input id="nrTerms" maxlength="200" placeholder="deep ocean, coral reef" autocomplete="off"><small>Separados por vírgula, em inglês. Vazio = a IA escolhe.</small></label><div></div></div>
+        <div class="t5-options" id="nrColorRow" hidden><label>Cor do fundo<input id="nrColor" type="color" value="#12161C"></label><div></div></div>
+        <p class="t5-help">O Pexels precisa de <code>PEXELS_API_KEY</code> no <code>.env</code> (chave grátis, uso comercial liberado). Sem ela, caímos na pasta de fundos.</p></div>
+      <div class="t5-panel"><div class="t5-section-title"><span>03</span><div><h2>Como vamos montar</h2><p id="nrFormatNote">MP4 1080 × 1920 · 9:16 · 30 fps · voz do sistema</p></div></div>
+        <div class="t5-options"><label>Formato<select id="nrOrientation"><option value="vertical" selected>9:16 vertical (Shorts, Reels, TikTok)</option><option value="feed">4:5 (feed do Instagram)</option><option value="square">1:1 quadrado</option><option value="horizontal">16:9 horizontal</option></select></label><div></div></div>
+        <label class="t5-checkbox"><input id="nrCaptions" type="checkbox" checked> Legendar a narração palavra por palavra</label>
+        <p class="t5-help">A legenda vem de transcrever a própria narração, não do roteiro escrito — é assim que ela cai junto com a palavra falada. Acrescenta alguns segundos ao processamento.</p></div>
+      <div class="t5-submit"><button class="btn btn-primary" type="submit" id="nrCreate" disabled>Gerar o vídeo <span>→</span></button><span>Voz e legenda rodam offline</span></div><p id="nrError" role="alert" class="studio-error"></p>
+    </form><aside class="t5-preview-column"><div class="t5-preview-heading"><span>PRÉVIA</span><span id="nrPreviewRatio">9:16</span></div>
+      <div class="mg-phone" id="nrPhone"><div class="mg-title" id="nrPreviewTitle">Seu tema aparece aqui</div><div class="mg-speech" id="nrPreviewLine">A primeira frase é o gancho.</div></div>
+      <p class="t5-help">A voz do Windows é modesta perto das vozes de nuvem. Confira a pronúncia de nomes próprios antes de publicar.</p></aside></div>
+  </section>
   <!-- ======================= início ======================= -->
   <section id="home">
     <div class="hero">
@@ -582,6 +606,7 @@
       <div class="formats">
         <a class="format-card top5" href="#/top5"><span class="format-icon" aria-hidden="true">5</span><div><strong>Top 3 · Top 5</strong><p>De três a cinco vídeos do TikTok num ranking, com cada nome revelado na hora certa.</p><small>RANKING</small></div><span class="format-go" aria-hidden="true">→</span></a>
         <a class="format-card quiz" href="#/quiz"><span class="format-icon" aria-hidden="true">?</span><div><strong>Quiz</strong><p>Pergunta, contagem e resposta. Alternativas A/B/C/D, perguntas por IA, fundos da sua pasta e lotes.</p><small>SUSPENSE</small></div><span class="format-go" aria-hidden="true">→</span></a>
+        <a class="format-card narration" href="#/narration"><span class="format-icon" aria-hidden="true">🎙</span><div><strong>Vídeo narrado</strong><p>Um tema vira roteiro, voz, imagens de banco e legenda. Nenhuma câmera, nenhum vídeo para cortar.</p><small>SEM CÂMERA</small></div><span class="format-go" aria-hidden="true">→</span></a>
         <a class="format-card reaction" href="#/reaction"><span class="format-icon" aria-hidden="true">⇄</span><div><strong>Reação e antes/depois</strong><p>Dois vídeos empilhados ou lado a lado, com legenda da fala e música de fundo.</p><small>DUO</small></div><span class="format-go" aria-hidden="true">→</span></a>
       </div>
     </div>
@@ -1206,11 +1231,12 @@ $("project").addEventListener("click", async e => {
 function route(){
   const m = location.hash.match(/^#\/job\/([\w-]+)/);
   currentId = m ? m[1] : null;
-  $("home").hidden = !!currentId || ['#/discover', '#/channel', '#/top5', '#/quiz', '#/reaction'].includes(location.hash);
+  $("home").hidden = !!currentId || ['#/discover', '#/channel', '#/top5', '#/quiz', '#/reaction', '#/narration'].includes(location.hash);
   $("discover").hidden = location.hash !== '#/discover';
   $("topfive").hidden = location.hash !== '#/top5';
   $("quiz").hidden = location.hash !== '#/quiz';
   $("reaction").hidden = location.hash !== '#/reaction';
+  $("narration").hidden = location.hash !== '#/narration';
   $("channel").hidden = location.hash !== '#/channel';
   $("project").hidden = !currentId;
   $("dropOverlay").hidden = true;
@@ -1263,6 +1289,7 @@ setInterval(refresh, 2000);
 <script src="/assets/topfive.js"></script>
 <script src="/assets/topfive-tools.js"></script>
 <script src="/assets/discover.js"></script>
+<script src="/assets/narration.js"></script>
 <script src="/assets/montages.js"></script>
 </body>
 </html>

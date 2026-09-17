@@ -99,6 +99,20 @@ class Config:
     stationary_threshold: float = _f("CLIPFORGE_STATIONARY_THRESHOLD", 0.18)
     max_pan_speed: float = _f("CLIPFORGE_MAX_PAN_SPEED", 0.32)
     motion_fps: float = _f("CLIPFORGE_MOTION_FPS", 30.0)
+    # Tela dividida automática: duas pessoas que não cabem no mesmo recorte são
+    # melhor servidas por dois quadros do que por uma câmera indo e voltando.
+    auto_split: bool = os.getenv("CLIPFORGE_AUTO_SPLIT", "1").lower() not in {"0", "false", "no"}
+    # Fração das amostras com rosto em que o par precisa aparecer separado demais.
+    split_coverage: float = _f("CLIPFORGE_SPLIT_COVERAGE", 0.45)
+    # Aproximação automática em plano aberto: o recorte encolhe e a escala sobe,
+    # como no AutoFlip. Abaixo de `min_zoom` a imagem ampliada perde nitidez.
+    auto_zoom: bool = os.getenv("CLIPFORGE_AUTO_ZOOM", "1").lower() not in {"0", "false", "no"}
+    min_zoom: float = _f("CLIPFORGE_MIN_ZOOM", 0.65)
+    # Altura desejada do rosto em relação à altura do recorte.
+    face_target: float = _f("CLIPFORGE_FACE_TARGET", 0.18)
+    # Ampliação total tolerada (recorte -> saída). Um 9:16 tirado de 1080p já
+    # nasce em 1,78x, então o teto precisa ser absoluto e não relativo.
+    max_upscale: float = _f("CLIPFORGE_MAX_UPSCALE", 2.5)
     # Desvio tolerado para trocar a perseguição quadro a quadro por uma animação
     # linear: movimento único e contínuo em vez de uma sucessão de correções.
     linear_tolerance: float = _f("CLIPFORGE_LINEAR_TOLERANCE", 0.08)
@@ -152,6 +166,8 @@ class Config:
             "center_bias": (0, 1), "stationary_threshold": (0, 1),
             "safe_area": (0.1, 1), "hold_seconds": (0, 10),
             "linear_tolerance": (0, 1),
+            "split_coverage": (0, 1), "min_zoom": (0.3, 1), "face_target": (0.05, 0.6),
+            "max_upscale": (1, 6),
             "min_face_coverage": (0, 1),
             "max_pan_speed": (0.02, 2), "motion_fps": (10, 60),
             "analysis_block_seconds": (120, 360), "analysis_context_sentences": (1, 8),
@@ -173,13 +189,20 @@ class Config:
             "caption_position": {"bottom", "middle", "top"},
             "caption_style": {"karaoke", "plain"},
             "video_encoder": {"auto", "nvenc", "qsv", "amf", "cpu"},
-            "orientation": {"vertical", "horizontal"},
+            "orientation": set(ORIENTATIONS),
         }.items():
             if getattr(self, name) not in options:
                 raise ValueError(f"{name} inválido")
 
 
-ORIENTATIONS = {"vertical": (1080, 1920), "horizontal": (1920, 1080)}
+# Formatos de saída. O reenquadramento usa a proporção daqui, então acrescentar
+# um formato basta: o recorte, a câmera e a legenda se ajustam sozinhos.
+ORIENTATIONS = {
+    "vertical": (1080, 1920),    # 9:16 — Shorts, Reels, TikTok
+    "feed": (1080, 1350),        # 4:5 — o que ocupa mais tela no feed do Instagram
+    "square": (1080, 1080),      # 1:1 — feed antigo e carrossel
+    "horizontal": (1920, 1080),  # 16:9 — YouTube tradicional
+}
 
 
 def apply_orientation(cfg: Config, orientation: str) -> Config:
