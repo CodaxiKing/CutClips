@@ -1,3 +1,19 @@
+"""Fixtures dos testes.
+
+A raiz do projeto entra em sys.path só depois que a stdlib já foi carregada: o
+`select.py` daqui tem o nome de um módulo nativo, e se a raiz entrasse antes o
+pytest quebraria ao importar `selectors`. Pelo fim da lista, e não pelo começo,
+para que nenhum outro nome do projeto (config, render, signals...) passe na frente
+de um pacote instalado.
+"""
+import select  # noqa: F401  - garante a stdlib antes de a raiz entrar no caminho
+import sys as _sys
+from pathlib import Path as _Path
+
+_ROOT = str(_Path(__file__).resolve().parents[1])
+if _ROOT not in _sys.path:
+    _sys.path.append(_ROOT)
+
 import json
 import os
 import shutil

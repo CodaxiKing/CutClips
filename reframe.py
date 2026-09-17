@@ -44,6 +44,11 @@ class CropPlan:
     faces_found: int = 0
     camera_mode: str = "static"
     target_source: str = "faces"  # faces|saliency|center|manual|full
+    # Preenchido quando duas pessoas não cabem no mesmo recorte: posições
+    # normalizadas para a tela dividida. Quem renderiza troca o layout.
+    split_x: tuple[float, float] | None = None
+    # Fração do maior recorte possível. Abaixo de 1 a câmera aproximou.
+    zoom: float = 1.0
 
     @property
     def x0(self) -> int:
@@ -200,8 +205,15 @@ def _sample_frames(video: Path, start: float, duration: float, info: MediaInfo,
 
 
 def _track_centers(frames: np.ndarray, cfg: Config, speech: list[bool] | None = None,
-                   speakers: list[str | None] | None = None) -> tuple[list[float | None], int, list[int]]:
-    """Centro x do alvo por frame amostrado (em px da amostra). None = sem detecção."""
+                   speakers: list[str | None] | None = None,
+                   observed: list[list[tuple[float, float, float]]] | None = None
+                   ) -> tuple[list[float | None], int, list[int]]:
+    """Centro x do alvo por frame amostrado (em px da amostra). None = sem detecção.
+
+    `observed` recebe, por amostra, todos os rostos plausíveis como (cx, cy, altura)
+    em px da amostra. É a matéria-prima das duas decisões que o alvo único não
+    permite: se duas pessoas cabem no mesmo recorte e se o plano está aberto demais.
+    """
     cv2 = _cv2()
     centers: list[float | None] = []
     found = 0
@@ -222,6 +234,8 @@ def _track_centers(frames: np.ndarray, cfg: Config, speech: list[bool] | None = 
             cuts.append(frame_index)
         previous_gray = gray
         faces = detect_faces(gray, frame)
+        if observed is not None:
+            observed.append([(x + w / 2.0, y + h / 2.0, float(h)) for x, y, w, h in faces])
         if not faces:
             centers.append(None)
             continue
@@ -528,6 +542,67 @@ def _targets_from_index(media_index: dict, info: MediaInfo, start: float, durati
     return _fill_and_smooth(centers, max_x / 2.0, cfg), found
 
 
+def split_tile_width(info: MediaInfo, cfg: Config) -> int:
+    """Largura de cada metade na tela dividida. Espelha o cálculo do filtergraph."""
+    half = max(1, cfg.out_height // 2)
+    return max(2, min(info.width, round(info.height * cfg.out_width / half)) // 2 * 2)
+
+
+def _split_decision(observed: list[list[tuple[float, float, float]]], scale: float,
+                    crop_w: int, info: MediaInfo, cfg: Config) -> tuple[float, float] | None:
+    """Posições das duas pessoas quando elas não cabem no mesmo recorte.
+
+    É o caso que a câmera única resolve mal: perseguir quem fala produz vaivém, e
+    ficar no meio mostra o vão entre os dois. Só vale quando o par aparece separado
+    na maior parte do trecho — dois rostos num quadro isolado é gente passando.
+    """
+    if not cfg.auto_split or not observed:
+        return None
+    lows: list[float] = []
+    highs: list[float] = []
+    seen = 0
+    for faces in observed:
+        if not faces:
+            continue
+        seen += 1
+        if len(faces) < 2:
+            continue
+        xs = sorted(f[0] for f in faces)
+        if (xs[-1] - xs[0]) * scale > crop_w * 1.05:
+            lows.append(xs[0] * scale)
+            highs.append(xs[-1] * scale)
+    if seen < max(4, int(cfg.track_fps * 2)) or len(lows) < seen * cfg.split_coverage:
+        return None
+    tile = split_tile_width(info, cfg)
+    room = max(1, info.width - tile)
+    left = float(np.clip((float(np.median(lows)) - tile / 2) / room, 0, 1))
+    right = float(np.clip((float(np.median(highs)) - tile / 2) / room, 0, 1))
+    return (round(left, 4), round(right, 4))
+
+
+def _zoom_factor(observed: list[list[tuple[float, float, float]]], scale: float,
+                 crop_h: int, cfg: Config) -> float:
+    """Quanto encolher o recorte para aproximar um plano aberto.
+
+    Recortar menos e ampliar mais é o que o AutoFlip faz: um rosto de 5% da altura
+    vira um ponto no Short. O piso protege a nitidez — abaixo dele a ampliação
+    aparece mais que o enquadramento melhora.
+    """
+    if not cfg.auto_zoom or crop_h <= 0:
+        return 1.0
+    heights = [face[2] * scale for faces in observed for face in faces]
+    if len(heights) < 4:
+        return 1.0
+    face = float(np.median(heights))
+    if face <= 0:
+        return 1.0
+    # Teto de ampliação total. Um recorte 9:16 de 1080p já sai em 1,78x, então o
+    # limite é sobre o resultado final, não sobre o quanto o zoom acrescenta:
+    # fonte em 4K aceita aproximar bem mais que fonte em 1080p.
+    floor = max(cfg.min_zoom, min(1.0, cfg.out_height / (crop_h * cfg.max_upscale)))
+    return float(min(1.0, max(floor, face / (cfg.face_target * crop_h))))
+
+
 def plan_crop(video: Path, info: MediaInfo, start: float, duration: float,
               cfg: Config = CONFIG, media_index: dict | None = None) -> CropPlan:
     crop_w, crop_h = crop_geometry(info, cfg)
@@ -565,7 +640,8 @@ def plan_crop(video: Path, info: MediaInfo, start: float, duration: float,
         for i in range(len(frames)):
             t=start+i/cfg.track_fps
             speaker_frames.append(next((w.get("speaker") for w in words if w.get("start",0)<=t<=w.get("end",0)),None))
-    centers, found, cuts = _track_centers(frames, cfg, speech, speaker_frames)
+    observed: list[list[tuple[float, float, float]]] = []
+    centers, found, cuts = _track_centers(frames, cfg, speech, speaker_frames, observed)
     sample_center = (frames.shape[2] / 2.0) if frames.size else (info.width / 2.0 / scale)
     source = "faces"
 
@@ -578,6 +654,24 @@ def plan_crop(video: Path, info: MediaInfo, start: float, duration: float,
         else:
             source = "center"
 
+    if found:
+        split = _split_decision(observed, scale, crop_w, info, cfg)
+        if split is not None:
+            # A montagem vira tela dividida; as posições vão para quem renderiza.
+            return CropPlan(crop_w, crop_h, [(0.0, round(max_x * cfg.crop_x))], y, static=True,
+                            faces_found=found, camera_mode="split", target_source="faces",
+                            split_x=split)
+
+    zoom = _zoom_factor(observed, scale, crop_h, cfg) if found else 1.0
+    if zoom < 0.995:
+        crop_w = max(2, int(crop_w * zoom) & ~1)
+        crop_h = max(2, int(crop_h * zoom) & ~1)
+        max_x = max(0, info.width - crop_w)
+        # Com o recorte menor a altura passa a importar: centra no rosto.
+        ys = [face[1] * scale for faces in observed for face in faces]
+        middle = float(np.median(ys)) if ys else info.height / 2.0
+        y = int(np.clip(middle - crop_h / 2.0, 0, max(0, info.height - crop_h)))
+
     smooth = _fill_and_smooth(centers, sample_center, cfg)
 
     # amostra -> px do original, e centro do alvo -> canto esquerdo do crop
@@ -586,7 +680,7 @@ def plan_crop(video: Path, info: MediaInfo, start: float, duration: float,
 
     return CropPlan(crop_w, crop_h, keyframes, y,
                     static=len(keyframes) == 1, faces_found=found, camera_mode=camera_mode,
-                    target_source=source)
+                    target_source=source, zoom=round(zoom, 3))
 
 
 def write_sendcmd(plan: CropPlan, path: Path) -> Path | None:

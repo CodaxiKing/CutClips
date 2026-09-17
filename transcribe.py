@@ -88,7 +88,16 @@ def _model(name: str, device: str, compute: str, threads: int = 0):
     # `cpu_threads=0` deixa a escolha com o ctranslate2, que é conservador; numa
     # máquina sem GPU a transcrição é o trecho mais longo do processamento e
     # vale usar os núcleos que existem.
-    return WhisperModel(name, device=device, compute_type=compute, cpu_threads=threads)
+    # Mais threads significam mais buffers do MKL. Numa máquina ocupada isso passa
+    # a falhar na alocação, e ficar sem transcrição por causa de desempenho é o
+    # pior dos dois mundos: cai para a escolha da biblioteca e segue.
+    for attempt in (threads, 0, 1):
+        try:
+            return WhisperModel(name, device=device, compute_type=compute, cpu_threads=attempt)
+        except RuntimeError as exc:
+            if "alloc" not in str(exc).lower() or attempt == 1:
+                raise
+    raise RuntimeError("não foi possível carregar o modelo de transcrição")
 
 
 def _decode_threads(device: str, cfg: Config) -> int:

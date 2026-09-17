@@ -93,7 +93,7 @@ def index() -> str:
 @app.get("/assets/{filename}")
 def asset(filename: str):
     if filename not in {"studio.js", "studio.css", "channel.js", "channel.css", "topfive.js", "topfive.css",
-                        "montages.js", "montages.css", "theme.css", "discover.js", "discover.css", "topfive-tools.js", "topfive-tools.css"}:
+                        "montages.js", "montages.css", "theme.css", "discover.js", "discover.css", "topfive-tools.js", "topfive-tools.css", "narration.js"}:
         raise HTTPException(404)
     return FileResponse(WEB / filename)
 

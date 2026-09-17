@@ -182,7 +182,7 @@ def run_pipeline_stage(task: dict) -> None:
         job=db.get_job(job_id)
         if not job: raise ValueError("projeto não encontrado")
         if task["stage"] in db.MONTAGES:
-            from clipforge import quiz, reaction, topfive
+            from clipforge import narrate, quiz, reaction, topfive
             directory = Path(STORAGE)/"jobs"/job_id
             progress = lambda s,p:db.set_progress(job_id,s,p)
             if task["stage"] == "quiz":
@@ -192,6 +192,11 @@ def run_pipeline_stage(task: dict) -> None:
                     avoid=lambda: db.batch_questions(batch, exclude=job_id) if batch else [],
                     save_settings=lambda settings: db.update_settings(job_id, settings),
                     recent_backgrounds=lambda: db.recent_backgrounds(exclude=job_id))
+            elif task["stage"] == "narration":
+                # A narração é a única montagem que chama IA: o provedor e o
+                # modelo vêm das configurações do projeto, como no corte.
+                manifest = narrate.process_narration(job["settings"], directory, progress,
+                                                     build_config(job["settings"]))
             else:
                 process_montage = {"top5": topfive.process_topfive, "reaction": reaction.process_reaction}[task["stage"]]
                 manifest = process_montage(job["settings"],directory,progress)

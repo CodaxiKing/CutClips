@@ -66,6 +66,9 @@ def render_clip(source: Path, job_dir: Path, words: list[Word], clip: dict,
     options = {**clip.get("edit_settings", {}), **edit.get("settings", {})}
     cfg = replace(cfg, **{k: v for k, v in options.items() if k in EDIT_FIELDS})
     cfg.validate()
+    # O que a pessoa escolheu. A montagem pode trocar o layout sozinha (tela
+    # dividida automática) sem que a escolha original suma do editor.
+    requested = cfg
     info = probe(source)
     start = float(edit.get("start", clip["source_start"]))
     end = float(edit.get("end", clip["source_end"]))
@@ -113,6 +116,11 @@ def render_clip(source: Path, job_dir: Path, words: list[Word], clip: dict,
         cache_dir.mkdir(parents=True, exist_ok=True)
         crop = crop_plan or plan_crop(source, info, start, end - start, cfg, media_index)
         crop = remap_crop(crop,cuts)
+        if crop.split_x:
+            # Duas pessoas separadas demais para um recorte só: a montagem passa a
+            # ser tela dividida, com cada quadro centrado em uma delas. A decisão é
+            # determinística, então um acerto de cache reproduz o mesmo vídeo.
+            cfg = replace(cfg, layout="split", crop_x=crop.split_x[0], secondary_x=crop.split_x[1])
         crop_json.write_text(json.dumps(asdict(crop)), encoding="utf-8")
         cmd = write_sendcmd(crop, cache_dir / "camera.cmd")
         base_spec=RenderSpec(source, start, end, cache_dir, base, crop,
@@ -136,9 +144,16 @@ def render_clip(source: Path, job_dir: Path, words: list[Word], clip: dict,
             thumb = out.with_name(f"{stem}-cover{i}.jpg")
             shutil.copyfile(cached_thumb, thumb); thumbs.append(thumb.name)
     actual = probe(out)
-    warnings = [w for w in clip.get("warnings", []) if not w.startswith(("Resolução", "Enquadramento", "Texto editado"))]
+    # Avisos recalculados a cada render saem da lista antiga para não duplicar.
+    warnings = [w for w in clip.get("warnings", []) if not w.startswith(
+        ("Resolução", "Enquadramento", "Texto editado", "Tela dividida", "Aproximação"))]
     if cfg.layout in {"manual", "track", "active"} and crop.crop_w < cfg.out_width * 0.6:
         warnings.append("Resolução do recorte baixa: a exportação amplia a imagem original.")
+    if crop.split_x:
+        warnings.append("Tela dividida automática: as duas pessoas não cabiam no mesmo recorte.")
+    if crop.zoom < 0.995:
+        warnings.append(f"Aproximação automática de {1 / crop.zoom:.1f}x: o plano estava aberto "
+                        "para um vídeo vertical.")
     if cfg.layout == "active":
         warnings.append("Enquadramento por atividade labial e áudio é uma estimativa; revise as trocas de participante.")
     if cfg.layout in {"track", "active"} and crop.target_source in {"saliency", "center"}:
@@ -158,7 +173,7 @@ def render_clip(source: Path, job_dir: Path, words: list[Word], clip: dict,
             "video_encoder": (cache_dir/"encoder.txt").read_text(encoding="utf-8") if (cache_dir/"encoder.txt").exists() else "unknown",
             "internal_edits": [{"start":round(a,3),"end":round(b,3),"reason":r} for a,b,r in cuts],
             "hook": " ".join(w.text for w in inside[:12]) if edit else clip.get("hook", ""),
-            "word_edits": replacements, "edit_settings": {k: getattr(cfg, k) for k in EDIT_FIELDS},
+            "word_edits": replacements, "edit_settings": {k: getattr(requested, k) for k in EDIT_FIELDS},
             "warnings": list(dict.fromkeys(warnings)), "editorial_stale": bool(edit),
             "render_seconds": round(time.monotonic()-started, 2),
             "uncertain_words": sum(w.prob < 0.7 for w in inside)}

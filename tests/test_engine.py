@@ -209,6 +209,57 @@ def test_explain_curates_known_failures_and_never_echoes_the_raw_message():
     assert "RuntimeError" in unknown and "log do worker" in unknown
 
 
+def _observations(pairs, samples=40):
+    """Amostras sintéticas de rostos: (cx, cy, altura) em px da amostra."""
+    return [[(x, 135.0, h) for x, h in pairs] for _ in range(samples)]
+
+
+def test_two_people_too_far_apart_become_a_split_screen():
+    from clipforge.reframe import _split_decision, split_tile_width
+    from clipforge.probe import MediaInfo
+    cfg = Config()
+    info = MediaInfo(Path("x.mp4"), 60.0, 1920, 1080, 30.0, True)
+    # Amostra tem 480 px de largura para 1920 na origem: escala 4.
+    apart = _observations([(60.0, 40.0), (420.0, 40.0)])
+    split = _split_decision(apart, 4.0, 608, info, cfg)
+    assert split is not None
+    left, right = split
+    assert 0 <= left < right <= 1
+    # As duas posições precisam render quadros distintos de verdade.
+    room = 1920 - split_tile_width(info, cfg)
+    assert (right - left) * room > 200
+
+
+def test_two_people_that_share_a_frame_keep_one_camera():
+    from clipforge.reframe import _split_decision
+    from clipforge.probe import MediaInfo
+    info = MediaInfo(Path("x.mp4"), 60.0, 1920, 1080, 30.0, True)
+    close = _observations([(230.0, 40.0), (260.0, 40.0)])
+    assert _split_decision(close, 4.0, 608, info, Config()) is None
+
+
+def test_a_passer_by_does_not_trigger_the_split():
+    from clipforge.reframe import _split_decision
+    from clipforge.probe import MediaInfo
+    info = MediaInfo(Path("x.mp4"), 60.0, 1920, 1080, 30.0, True)
+    samples = _observations([(240.0, 40.0)], samples=36) + _observations([(60.0, 40.0), (420.0, 40.0)], samples=4)
+    assert _split_decision(samples, 4.0, 608, info, Config()) is None
+
+
+def test_a_wide_shot_zooms_in_without_destroying_sharpness():
+    from clipforge.reframe import _zoom_factor
+    cfg = Config()
+    # Rosto de 12 px numa amostra escala 4 = 48 px numa altura de recorte de 1080.
+    small = _zoom_factor(_observations([(240.0, 12.0)]), 4.0, 1080, cfg)
+    assert small < 1.0 and small >= cfg.min_zoom
+    # A ampliação total do recorte até a saída respeita o teto configurado.
+    assert cfg.out_height / (1080 * small) <= cfg.max_upscale + 0.01
+    close_up = _zoom_factor(_observations([(240.0, 90.0)]), 4.0, 1080, cfg)
+    assert close_up == 1.0
+    assert _zoom_factor([], 4.0, 1080, cfg) == 1.0
+    assert _zoom_factor(_observations([(240.0, 12.0)]), 4.0, 1080, Config(auto_zoom=False)) == 1.0
+
+
 def test_camera_keeps_an_off_center_subject_inside_the_safe_area():
     # 1920x1080 -> recorte 9:16 de 608px. Apresentador a 15% da largura: o antigo
     # viés de centro deixava o rosto a 10% do recorte, ou seja, meio rosto cortado.
