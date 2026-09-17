@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+storage/
+out/
+tests/fixtures/
+.venv/
+.tools/
+.pytest_cache/
+tests/artifacts/
