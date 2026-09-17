@@ -23,6 +23,8 @@ from .probe import probe
 
 # Cada posição mostra no máximo este trecho; sem duração escolhida, usa o que couber.
 MAX_CLIP = 15.0
+# Fontes oferecidas na interface, iguais para título, ranking e @.
+FontName = Literal['Arial', 'Impact', 'Georgia', 'Trebuchet MS', 'Comic Sans MS', 'Segoe Print', 'Segoe Script', 'Ink Free', 'Bahnschrift', 'Verdana', 'Consolas', 'Segoe UI']
 
 
 def shorts_id(url: str) -> str | None:
@@ -133,8 +135,8 @@ class TopFive(BaseModel):
     order: Literal["ascending", "countdown"] = "ascending"
     layout: Literal["fit", "crop"] = "fit"
     normalize_audio: bool = True
-    title_font: Literal['Arial', 'Impact', 'Georgia', 'Trebuchet MS', 'Comic Sans MS', 'Segoe Print', 'Segoe Script', 'Ink Free', 'Bahnschrift', 'Verdana', 'Consolas', 'Segoe UI'] = 'Impact'
-    rank_font: Literal['Arial', 'Impact', 'Georgia', 'Trebuchet MS', 'Comic Sans MS', 'Segoe Print', 'Segoe Script', 'Ink Free', 'Bahnschrift', 'Verdana', 'Consolas', 'Segoe UI'] = 'Arial'
+    title_font: FontName = 'Impact'
+    rank_font: FontName = 'Arial'
     text_effect: Literal['outline', 'shadow', 'neon'] = 'outline'
     accent_color: str = Field(default='#ffdd45', pattern=r'^#[0-9a-fA-F]{6}$')
     title_color: str = Field(default='#ffffff', pattern=r'^#[0-9a-fA-F]{6}$')
@@ -151,6 +153,7 @@ class TopFive(BaseModel):
     animate_intro: bool = True
     watermark: str = Field(default='', max_length=32)
     watermark_opacity: int = Field(default=40, ge=15, le=80)
+    watermark_font: FontName = 'Arial'
 
     @field_validator('watermark')
     @classmethod
@@ -222,7 +225,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     if spec.watermark:
         alpha = round(255*(1-spec.watermark_opacity/100))
         lines.append(f"Dialogue: 3,0:00:00.00,{_ts(total)},Title,,0,0,0,,"
-                     f"{{\\an5\\pos(540,1640)\\fnArial\\fs44\\bord2\\shad1\\alpha&H{alpha:02X}&}}{text_literal(spec.watermark)}\n")
+                     f"{{\\an5\\pos(540,1640)\\fn{spec.watermark_font}\\fs44\\bord2\\shad1\\alpha&H{alpha:02X}&}}{text_literal(spec.watermark)}\n")
     revealed = set()
     for segment in timeline:
         begin = _ts(math.floor(segment["start"]*100+1e-6)/100)
