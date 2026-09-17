@@ -111,6 +111,7 @@ def all_topics(monkeypatch):
     real = httpx.Client
     monkeypatch.setattr(trending.httpx, "Client", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
     monkeypatch.setattr(trending, "_cache", {})
+    monkeypatch.setattr(trending, "_flat_entries", lambda url, limit: [])  # sem YouTube de verdade nos testes
     return hashtag_calls
 
 
@@ -139,3 +140,69 @@ def test_trending_hashtags_follow_the_selected_category(client, all_topics):
     assert len(all_topics) == calls  # categorias reaproveitam a mesma consulta
     assert client.get("/api/trending/hashtags", params={"region": "XX"}).status_code == 422
     assert client.get("/api/trending/hashtags", params={"topic": "999"}).status_code == 404
+
+
+def shorts_entry(video, views, title=""):
+    return {"id": video, "url": f"https://www.youtube.com/shorts/{video}", "title": title, "view_count": views,
+            "thumbnails": [{"url": f"https://i.ytimg.com/vi/{video}/oardefault.jpg"}]}
+
+
+@pytest.fixture
+def shorts_feeds(monkeypatch):
+    feeds = {
+        "futebol": [shorts_entry("aaaaaaaaaaa", 900, "Golaço #futebol"), shorts_entry("bbbbbbbbbbb", 50, "#ad chuteira")],
+        "brasil": [shorts_entry("aaaaaaaaaaa", 950), {"id": "UCchannel00", "url": "https://www.youtube.com/channel/UCchannel00"},
+                   shorts_entry("ccccccccccc", 300, "Torcida #brasil")],
+        "dancinha": [shorts_entry("ddddddddddd", 5000, "Passinho novo #dancinha")],
+    }
+    asked = []
+
+    def flat(url, limit):
+        asked.append(url)
+        return feeds.get(url.split("/hashtag/")[1].split("/")[0], [])
+
+    monkeypatch.setattr(trending, "_flat_entries", flat)
+    monkeypatch.setattr(trending, "_cache", {})
+    return asked
+
+
+def test_search_uses_youtube_shorts_hashtags(client, shorts_feeds):
+    assert trending.shorts_tags("#Futebol") == ["futebol"]
+    assert trending.shorts_tags("futebol brasil") == ["futebolbrasil", "futebol", "brasil"]
+    body = client.get("/api/trending/search", params={"q": "futebol brasil"}).json()
+    assert body["topic"] == {"id": "search", "name": "“futebol brasil” no YouTube Shorts"}
+    assert [v["id"] for v in body["videos"]] == ["yt-aaaaaaaaaaa", "yt-ccccccccccc"]  # sem canal, sem publi
+    first = body["videos"][0]
+    assert first["views"] == 950 and first["source"] == "youtube" and first["url"] == "https://www.youtube.com/shorts/aaaaaaaaaaa"
+    assert first["preview"] == "/api/trending/shorts/aaaaaaaaaaa/preview"
+    assert {"name": "futebol", "videos": 1} in body["hashtags"]
+    asked = len(shorts_feeds)
+    client.get("/api/trending/search", params={"q": "futebol brasil"})
+    assert len(shorts_feeds) == asked
+    assert client.get("/api/trending/search", params={"q": "###"}).status_code == 422
+
+
+def test_dance_adds_youtube_shorts_to_tiktok(client, all_topics, shorts_feeds):
+    body = client.get("/api/trending/videos", params={"topic": "dance"}).json()
+    assert [v["id"] for v in body["videos"]] == ["yt-ddddddddddd", "12", "14"]
+    assert {t for t in trending.SHORTS_DANCE} <= {u.split("/hashtag/")[1].split("/")[0] for u in shorts_feeds}
+
+
+def test_shorts_preview_is_downloaded_once(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(trending, "STORAGE", tmp_path)
+    downloads = []
+
+    def fake(video, folder):
+        downloads.append(video)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{video}.mp4").write_bytes(b"mp4")
+        return folder / f"{video}.mp4"
+
+    monkeypatch.setattr(trending, "download_preview", fake)
+    for _ in range(2):
+        response = client.get("/api/trending/shorts/aaaaaaaaaaa/preview")
+        assert response.status_code == 200 and response.content == b"mp4"
+    assert downloads == ["aaaaaaaaaaa"]
+    assert client.get("/api/trending/shorts/..%2Fsecret/preview").status_code == 404
+    monkeypatch.setattr(trending, "download_preview", lambda v, f: (_ for _ in ()).throw(RuntimeError("x")))
+    assert client.get("/api/trending/shorts/bbbbbbbbbbb/preview").status_code == 502

@@ -17,13 +17,13 @@
     <section class="discover-trending" aria-labelledby="trendingTitle">
     <div class="discover-trending-head"><div><h2 id="trendingTitle">Mais vistos por tópico</h2><p class="discover-note">Em alta no TikTok nos últimos 30 dias.</p></div><button id="trendingRefresh" class="btn btn-outline btn-sm" type="button">Atualizar</button></div>
     <details class="discover-about"><summary>Sobre os dados</summary><ul>
-      <li>Fonte: lista pública de vídeos em alta da Central de Criação do TikTok (últimos 7 e 30 dias).</li>
-      <li>Há vídeos só de Estados Unidos, Japão, Indonésia, Tailândia e Vietnã. O TikTok não publica essa lista para o Brasil.</li>
-      <li>A lista inclui conteúdo impulsionado. “Sem publis” esconde só o que está marcado (#ad, parceria).</li>
-      <li>“Todos os tópicos” e “Dance” juntam as listas de todas as categorias; Dance filtra pela legenda.</li>
+      <li>Tópicos: lista pública de vídeos em alta da Central de Criação do TikTok (últimos 7 e 30 dias), só de Estados Unidos, Japão, Indonésia, Tailândia e Vietnã. O TikTok não publica essa lista para o Brasil.</li>
+      <li>Dance e a busca (Enter no campo de busca): YouTube Shorts por hashtag, com vídeos do Brasil e do mundo. Uma palavra vira hashtag: “futebol brasil” busca #futebolbrasil, #futebol e #brasil.</li>
+      <li>As visualizações do YouTube são arredondadas pelo próprio YouTube. A lista do TikTok inclui conteúdo impulsionado; “Sem publis” esconde só o que está marcado (#ad, parceria).</li>
+      <li>A prévia de um Shorts no editor é baixada em qualidade leve na primeira vez (alguns segundos).</li>
     </ul></details>
     <div class="discover-topics" id="trendingTopics" role="group" aria-label="Tópicos"></div>
-    <div class="discover-filters"><label class="discover-search"><span class="sr-only">Buscar</span><input id="trendingSearch" type="search" maxlength="60" placeholder="Buscar na legenda ou #hashtag" autocomplete="off"></label><label><span class="sr-only">Região</span><select id="trendingRegion"><option value="">Todas as regiões</option></select></label><label><span class="sr-only">Ordenar por</span><select id="trendingSort"><option value="views">Mais visualizações</option><option value="organic">Mais visualizações orgânicas</option></select></label><label class="discover-check"><input id="trendingHideAds" type="checkbox" checked> Sem publis</label></div>
+    <div class="discover-filters"><form class="discover-search" id="trendingSearchForm" role="search"><label><span class="sr-only">Filtrar ou buscar</span><input id="trendingSearch" type="search" maxlength="60" placeholder="Filtrar a lista ou buscar no YouTube Shorts" autocomplete="off"></label><button class="btn btn-outline btn-sm" type="submit" id="trendingSearchGo" hidden>Buscar no Shorts ↵</button></form><label><span class="sr-only">Região</span><select id="trendingRegion"><option value="">Todas as regiões</option></select></label><label><span class="sr-only">Ordenar por</span><select id="trendingSort"><option value="views">Mais visualizações</option><option value="organic">Mais visualizações orgânicas</option></select></label><label class="discover-check"><input id="trendingHideAds" type="checkbox" checked> Sem publis</label></div>
     <div class="discover-tagbar"><span>Filtrar por hashtag</span><div id="trendingTags" role="group" aria-label="Hashtags dos vídeos"></div></div>
     <div class="discover-fill"><div><strong id="trendingStatus" role="status" aria-live="polite">Carregando…</strong><small id="trendingWarn"></small></div><div class="discover-fill-actions"><span id="trendingPicked">Montar ranking</span><button id="trendingClear" class="btn btn-outline btn-sm" type="button" hidden>Limpar seleção</button>${[3,4,5].map(n=>`<button class="btn btn-primary btn-sm" type="button" data-fill-top="${n}" disabled>Top ${n}</button>`).join('')}</div></div>
     <ul class="discover-videos" id="trendingVideos"></ul>
@@ -67,7 +67,8 @@
     if(q.startsWith('#')){const tag=q.slice(1);return tag?trending.videos.filter(v=>tagsOf(v.title).some(t=>t.startsWith(tag))):trending.videos;}
     return trending.videos.filter(v=>(v.title+' @'+v.author).toLowerCase().includes(q));
   }
-  function poolName(){const q=$('trendingSearch').value.trim();return q?(q.startsWith('#')?q:`“${q}”`)+(trending.topic?` · ${trending.name}`:''):trending.name;}
+  // Na busca, o nome do grupo é o termo buscado ("futebol", "#dancinha"), usado também no título do ranking.
+  function poolName(){const q=$('trendingSearch').value.trim(),base=trending.topic==='search'?trending.query:trending.name;return q?(q.startsWith('#')?q:`“${q}”`)+(base?` · ${base}`:''):base;}
   function trendStatus(message,warn=''){$('trendingStatus').textContent=message;$('trendingWarn').textContent=warn;}
   // Erros de rede e API desatualizada viram mensagens acionáveis, em vez de "Failed to fetch".
   async function getJSON(url,fallback){
@@ -81,24 +82,25 @@
   async function loadTopics(){
     try{const body=await getJSON('/api/trending/topics','Não foi possível carregar os tópicos.');
       $('trendingTopics').innerHTML=body.topics.map(t=>`<button type="button" class="discover-topic" data-topic="${esc(t.id)}" aria-pressed="${t.id===trending.topic}">${esc(t.name)}</button>`).join('');
-      $('trendingRegion').innerHTML='<option value="">Todas as regiões</option>'+(body.regions.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')+'<option disabled>Brasil · sem dados de vídeos na fonte</option>');
+      $('trendingRegion').innerHTML='<option value="">Todas as regiões</option>'+(body.regions.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')+'<option disabled>Brasil · use Dance ou a busca (YouTube Shorts)</option>');
       $('trendingTagRegion').innerHTML=body.hashtag_regions.map(r=>`<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('');
       return true;
     }catch(error){trendStatus(error.message);return false;}
   }
   async function loadVideos(refresh=false){
-    const ticket=++trending.ticket,params=new URLSearchParams({topic:trending.topic,region:$('trendingRegion').value,sort:$('trendingSort').value,hide_ads:$('trendingHideAds').checked});
+    const searching=trending.topic==='search',ticket=++trending.ticket,params=new URLSearchParams(searching?{q:trending.query,sort:$('trendingSort').value,hide_ads:$('trendingHideAds').checked}:{topic:trending.topic,region:$('trendingRegion').value,sort:$('trendingSort').value,hide_ads:$('trendingHideAds').checked});
+    $('trendingRegion').disabled=searching;trending.loading=true;
     if(refresh)params.set('refresh','true');
     document.querySelectorAll('[data-topic]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.topic===trending.topic)));
     document.querySelectorAll('[data-fill-top]').forEach(b=>b.disabled=true);
-    trendStatus('Carregando vídeos…',trending.topic&&trending.topic!=='dance'?'':'Juntando todos os tópicos; na primeira vez leva alguns segundos.');$('trendingVideos').setAttribute('aria-busy','true');
+    trendStatus(searching?`Buscando “${trending.query}” no YouTube Shorts…`:'Carregando vídeos…',searching||trending.topic&&trending.topic!=='dance'?'':'Juntando os tópicos; na primeira vez leva alguns segundos.');$('trendingVideos').setAttribute('aria-busy','true');
     try{
-      const body=await getJSON('/api/trending/videos?'+params,'Não foi possível consultar o TikTok agora.');
+      const body=await getJSON((searching?'/api/trending/search?':'/api/trending/videos?')+params,'Não foi possível consultar os vídeos agora.');
       if(ticket!==trending.ticket)return;
-      trending.videos=body.videos;trending.hashtags=body.hashtags||[];trending.name=body.topic.name;trending.fetched=body.fetched_at;
+      trending.loading=false;trending.videos=body.videos;trending.hashtags=body.hashtags||[];trending.name=body.topic.name;trending.fetched=body.fetched_at;
       renderVideos();
-    }catch(error){if(ticket===trending.ticket){document.querySelectorAll('[data-fill-top]').forEach(b=>b.disabled=true);trending.videos=[];trending.hashtags=[];trending.fetched=null;renderVideos();trendStatus(error.message);}}
-    finally{if(ticket===trending.ticket)$('trendingVideos').removeAttribute('aria-busy');}
+    }catch(error){if(ticket===trending.ticket){trending.loading=false;document.querySelectorAll('[data-fill-top]').forEach(b=>b.disabled=true);trending.videos=[];trending.hashtags=[];trending.fetched=null;renderVideos();trendStatus(error.message);}}
+    finally{if(ticket===trending.ticket){trending.loading=false;$('trendingVideos').removeAttribute('aria-busy');}}
   }
   // Hashtags dos vídeos listados: mostra as que se repetem; o resto fica atrás de "+N".
   function renderTags(){
@@ -110,24 +112,24 @@
       +(hidden>0?`<button type="button" class="discover-tag discover-more" data-more>+${hidden}</button>`:trending.allTags&&tags.length>base.length?'<button type="button" class="discover-tag discover-more" data-more>menos</button>':'')
       :'<small>Nenhuma hashtag nos vídeos deste tópico.</small>';
     const inVideos=new Set(tags.map(t=>t.name.toLowerCase()));
-    document.querySelectorAll('#trendingHot [data-hot]').forEach(b=>{const name=b.dataset.hot.toLowerCase(),usable=inVideos.has(name);b.disabled=!usable;b.dataset.tag=usable?b.dataset.hot:'';b.setAttribute('aria-pressed',String(usable&&name===active));b.title=usable?'Filtrar os vídeos por esta hashtag':'Nenhum vídeo listado usa esta hashtag';});
+    document.querySelectorAll('#trendingHot [data-hot]').forEach(b=>{const name=b.dataset.hot.toLowerCase(),usable=inVideos.has(name);b.dataset.tag=usable?b.dataset.hot:'';b.setAttribute('aria-pressed',String(usable&&name===active));b.title=usable?'Filtrar os vídeos por esta hashtag':'Buscar esta hashtag no YouTube Shorts';});
   }
   function renderVideos(){
     const list=visibleVideos();renderTags();renderVideosStatus(list);
     $('trendingVideos').innerHTML=list.map((v,i)=>CARD(v,i)).join('');
   }
   function renderVideosStatus(list=visibleVideos()){
-    if(trending.fetched){
+    if(trending.fetched&&!trending.loading){
       const filtered=list.length!==trending.videos.length,q=$('trendingSearch').value.trim();
-      const count=trending.videos.length?`${list.length} ${list.length===1?'vídeo':'vídeos'} · ${poolName()}`:'Nenhum vídeo';
-      const warn=!trending.videos.length?'Nenhum vídeo com esses filtros. Tente outra região ou desmarque “Sem publis”.'
-        :filtered&&!list.length?`Nenhum vídeo deste tópico ${q.startsWith('#')?'usa '+q:'menciona “'+q+'”'}.`
+      const count=trending.videos.length?`${list.length} ${list.length===1?'vídeo':'vídeos'} · ${poolName()}${trending.topic==='search'?' · YouTube Shorts':''}`:'Nenhum vídeo';
+      const warn=!trending.videos.length?(trending.topic==='search'?'Nenhum Shorts com essa hashtag. Tente outra palavra.':'Nenhum vídeo com esses filtros. Tente outra região ou desmarque “Sem publis”.')
+        :filtered&&!list.length?`Nenhum vídeo desta lista ${q.startsWith('#')?'usa '+q:'menciona “'+q+'”'}. Aperte Enter para buscar no YouTube Shorts.`
         :list.length<3?(trending.topic==='dance'&&!filtered?'A lista pública do TikTok tem poucos vídeos de dança agora. O ranking precisa de pelo menos 3.':'O ranking precisa de pelo menos 3 vídeos.'):'';
       trendStatus(count,warn);
     }
     renderFill(list);
   }
-  const CARD=(v,i)=>`<li class="discover-video${pickedAt(v)?' is-picked':''}"><div class="discover-thumb" data-preview="${i}"><img src="${esc(v.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer"><span class="discover-rank">${pickedAt(v)?`✓ ${pickedAt(v)}º`:i+1}</span><span class="discover-views" title="${v.views.toLocaleString('pt-BR')} visualizações · ${v.organic_views.toLocaleString('pt-BR')} orgânicas">${compact($('trendingSort').value==='organic'?v.organic_views:v.views)} views</span></div><div class="discover-video-body"><strong title="${esc(v.title)}">${esc(v.title||'Sem legenda')}</strong><small>@${esc(v.author)} · ${compact(v.organic_views)} orgânicas · ${esc(v.regions.join(', '))}</small><div class="discover-video-actions"><a href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">TikTok ↗</a>${pickButton(v)}</div></div></li>`;
+  const CARD=(v,i)=>`<li class="discover-video${pickedAt(v)?' is-picked':''}"><div class="discover-thumb" data-preview="${i}"><img src="${esc(v.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer"><span class="discover-rank">${pickedAt(v)?`✓ ${pickedAt(v)}º`:i+1}</span><span class="discover-source is-${v.source}">${v.source==='youtube'?'Shorts':'TikTok'}</span><span class="discover-views" title="${v.views.toLocaleString('pt-BR')} visualizações · ${v.organic_views.toLocaleString('pt-BR')} orgânicas">${compact($('trendingSort').value==='organic'?v.organic_views:v.views)} views</span></div><div class="discover-video-body"><strong title="${esc(v.title)}">${esc(v.title||'Sem legenda')}</strong><small>${v.source==='youtube'?(v.author?esc(v.author)+' · ':'')+'YouTube Shorts':`@${esc(v.author)} · ${compact(v.organic_views)} orgânicas · ${esc(v.regions.join(', '))}`}</small><div class="discover-video-actions"><a href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">${v.source==='youtube'?'YouTube':'TikTok'} ↗</a>${pickButton(v)}</div></div></li>`;
   const pickedAt=v=>trending.picked.findIndex(p=>p.id===v.id)+1;
   function pickButton(v){const n=pickedAt(v);return `<button type="button" class="btn btn-sm ${n?'btn-primary':'btn-outline'}" data-pick="${esc(v.id)}" aria-pressed="${!!n}">${n?`✓ ${n}º no ranking`:'Selecionar'}</button>`;}
   // Sem seleção: Top N com os mais vistos. Com seleção: os escolhidos entram primeiro e o resto é completado.
@@ -155,9 +157,9 @@
     renderVideosStatus();
   }
   // Prévia ao passar o mouse ou focar: o vídeo só é carregado quando pedido.
-  function startPreview(thumb){
+  function startPreview(thumb,clicked=false){
     if(!thumb||thumb.querySelector('video'))return;
-    const v=visibleVideos()[Number(thumb.dataset.preview)];if(!v)return;
+    const v=visibleVideos()[Number(thumb.dataset.preview)];if(!v||v.source==='youtube'&&!clicked)return;
     const video=document.createElement('video');Object.assign(video,{src:v.preview,muted:true,loop:true,playsInline:true,autoplay:true});video.setAttribute('referrerpolicy','no-referrer');
     video.onerror=()=>video.remove();thumb.append(video);video.play().catch(()=>{});
   }
@@ -165,24 +167,33 @@
   $('trendingVideos').addEventListener('mouseover',e=>startPreview(e.target.closest('[data-preview]')));
   $('trendingVideos').addEventListener('mouseout',e=>{const t=e.target.closest('[data-preview]');if(t&&!t.contains(e.relatedTarget))stopPreview(t);});
   $('trendingVideos').addEventListener('click',e=>{
-    const thumb=e.target.closest('[data-preview]');if(thumb){thumb.querySelector('video')?stopPreview(thumb):startPreview(thumb);return;}
+    const thumb=e.target.closest('[data-preview]');if(thumb){thumb.querySelector('video')?stopPreview(thumb):startPreview(thumb,true);return;}
     const button=e.target.closest('[data-pick]');if(button)togglePick(button.dataset.pick);
   });
   $('trendingClear').onclick=()=>{trending.picked=[];renderVideos();};
-  $('trendingTopics').onclick=e=>{const b=e.target.closest('[data-topic]');if(!b)return;trending.topic=b.dataset.topic;trending.allTags=false;$('trendingSearch').value='';loadVideos();loadHot();};
+  $('trendingTopics').onclick=e=>{const b=e.target.closest('[data-topic]');if(!b)return;trending.topic=b.dataset.topic;trending.allTags=false;$('trendingSearch').value='';$('trendingSearchGo').hidden=true;loadVideos();loadHot();};
   $('trendingRegion').onchange=()=>loadVideos();$('trendingSort').onchange=()=>loadVideos();$('trendingHideAds').onchange=()=>loadVideos();
   $('trendingRefresh').onclick=()=>{if(!trendingStarted){startTrending();return;}loadVideos(true);loadHot(true);};
   let searchTimer=0;
-  $('trendingSearch').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(renderVideos,200);});
+  $('trendingSearch').addEventListener('input',()=>{$('trendingSearchGo').hidden=!$('trendingSearch').value.trim();clearTimeout(searchTimer);searchTimer=setTimeout(renderVideos,200);});
+  // Enter: busca no YouTube Shorts (a lista atual só é filtrada enquanto se digita).
+  function runSearch(query){
+    const q=String(query||'').trim();if(!q)return;
+    clearTimeout(searchTimer);
+    if(!trendingStarted){startTrending();return;}
+    trending.topic='search';trending.query=q;trending.allTags=false;$('trendingSearch').value='';$('trendingSearchGo').hidden=true;
+    loadVideos();loadHot();
+  }
+  $('trendingSearchForm').onsubmit=e=>{e.preventDefault();runSearch($('trendingSearch').value);};
   function pickTag(button){
     if(!button||!button.dataset.tag)return;
     const tag='#'+button.dataset.tag;
     $('trendingSearch').value=$('trendingSearch').value.trim().toLowerCase()===tag.toLowerCase()?'':tag;renderVideos();
   }
   $('trendingTags').onclick=e=>{if(e.target.closest('[data-more]')){trending.allTags=!trending.allTags;renderTags();return;}pickTag(e.target.closest('[data-tag]'));};
-  $('trendingHot').onclick=e=>{const b=e.target.closest('[data-hot]');if(b&&!b.disabled)pickTag(b);};
+  $('trendingHot').onclick=e=>{const b=e.target.closest('[data-hot]');if(!b)return;if(b.dataset.tag)pickTag(b);else runSearch('#'+b.dataset.hot);};
   async function loadHot(refresh=false){
-    const ticket=++trending.hotTicket,params=new URLSearchParams({region:$('trendingTagRegion').value||'BR',topic:trending.topic});if(refresh)params.set('refresh','true');
+    const ticket=++trending.hotTicket,params=new URLSearchParams({region:$('trendingTagRegion').value||'BR',topic:trending.topic==='search'?'':trending.topic});if(refresh)params.set('refresh','true');
     $('trendingHotSummary').textContent='Hashtags em alta · carregando…';
     $('trendingHot').innerHTML='';
     try{
@@ -202,7 +213,7 @@
     const picked=trending.picked.length;
     // Título do ranking: o tópico de onde vieram os escolhidos; se vieram de vários, o título genérico.
     const origins=[...new Map(trending.picked.map(v=>[v.topicName,v.topicId||v.topicName])).entries()];
-    const topic=!picked?{id:trending.topic||($('trendingSearch').value.trim()?'search':''),name:poolName()}:origins.length===1?{id:origins[0][1]||'',name:origins[0][0]}:{id:'',name:'Seleção'};
+    const topic=!picked?{id:trending.topic||($('trendingSearch').value.trim()?'filter':''),name:poolName()}:origins.length===1?{id:origins[0][1]||'',name:origins[0][0]}:{id:'',name:'Seleção'};
     try{if(window.TopFive.importTopic({...topic,videos:fillPool(visibleVideos())},count)){trending.picked=[];renderVideos();}}
     catch(error){$('trendingWarn').textContent=error.message;}
     if(picked&&trending.picked.length)renderFill();

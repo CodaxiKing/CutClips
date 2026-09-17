@@ -1,4 +1,4 @@
-"""Three to five TikTok clips, one customizable vertical ranking."""
+"""Three to five TikTok or YouTube Shorts clips, one customizable vertical ranking."""
 from __future__ import annotations
 
 import json
@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 import hashlib
 from .captions import _ts
 from .config import Config
-from .download import DownloadError
+from .download import DownloadError, download
 from .montage import download_tiktok, ffmpeg, text_literal, tiktok_duration
 from .editor import atomic_json
 from .probe import probe
@@ -23,6 +23,49 @@ from .probe import probe
 
 # Cada posição mostra no máximo este trecho; sem duração escolhida, usa o que couber.
 MAX_CLIP = 15.0
+
+
+def shorts_id(url: str) -> str | None:
+    """ID de um link de YouTube Shorts (youtube.com/shorts/<id>), ou None."""
+    try:
+        u = urlparse(str(url).strip())
+    except ValueError:
+        return None
+    if u.scheme != "https" or u.username or u.password or u.port or u.fragment:
+        return None
+    match = re.fullmatch(r"/shorts/([\w-]{11})/?", u.path)
+    return match.group(1) if u.hostname in {"youtube.com", "www.youtube.com", "m.youtube.com"} and match else None
+
+
+def shorts_duration(url: str) -> float:
+    """Duração de um Shorts, lida sem baixar."""
+    import yt_dlp
+    from .download import _base_opts
+    opts = _base_opts(Config(), Path("."), lambda _: None)
+    opts.update(socket_timeout=25, retries=2)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False) or {}
+    except yt_dlp.utils.DownloadError as exc:
+        raise DownloadError("Não foi possível ler o vídeo do YouTube. Detalhe: " + readable_download_error(exc)) from exc
+    if not info.get("duration"):
+        raise DownloadError("Use um link de YouTube Shorts disponível publicamente")
+    return float(info["duration"])
+
+
+def source_duration(url: str) -> float:
+    return shorts_duration(url) if shorts_id(url) else tiktok_duration(url)
+
+
+def download_source(url: str, folder: Path) -> Path:
+    """Baixa a fonte de uma posição: TikTok ou YouTube Shorts."""
+    if not shorts_id(url):
+        return download_tiktok(url, folder)
+    path, info = download(url, folder)
+    if (info.get("duration") or 0) > 600:
+        path.unlink(missing_ok=True)
+        raise DownloadError("Cada fonte deve ter até 10 minutos")
+    return path
 
 
 def file_digest(path):
@@ -65,12 +108,14 @@ class Entry(BaseModel):
     @classmethod
     def tiktok_url(cls, value):
         u = urlparse(value)
+        if shorts_id(value):
+            return value
         if u.scheme != "https" or u.username or u.password or u.port or u.fragment:
-            raise ValueError("Use um link HTTPS de vídeo do TikTok")
+            raise ValueError("Use um link HTTPS de vídeo do TikTok ou do YouTube Shorts")
         normal = u.hostname in {"tiktok.com", "www.tiktok.com", "m.tiktok.com"} and re.fullmatch(r"/(?:@[\w.\-]+/video/\d+|t/[\w-]+)/?", u.path)
         short = u.hostname in {"vm.tiktok.com", "vt.tiktok.com"} and re.fullmatch(r"/[\w-]+/?", u.path)
         if not (normal or short):
-            raise ValueError("Cole o link de um vídeo do TikTok, não de perfil, live ou playlist")
+            raise ValueError("Cole o link de um vídeo do TikTok ou de um YouTube Shorts, não de perfil, live ou playlist")
         return value
 
     @field_validator("name")
@@ -355,13 +400,13 @@ def process_topfive(settings: dict, directory: Path, progress=lambda *_: None):
     spec = load_spec(settings["top5"])
     sources, failures = [], []
     for i, entry in enumerate(spec.entries):
-        progress(f"baixando TikTok {i+1}/{len(spec.entries)}", i*.30/len(spec.entries))
+        progress(f"baixando vídeo {i+1}/{len(spec.entries)}", i*.30/len(spec.entries))
         path = cached_source(directory, i, entry.url)
         if path is None:
             folder = directory/"source"/f"video-{i+1}"
             stale = cached_source(directory, i)
             try:
-                path = download_tiktok(entry.url,folder)
+                path = download_source(entry.url,folder)
             except Exception as exc:
                 # Continua baixando os outros: a próxima tentativa só refaz o que falhou.
                 failures.append(f"Vídeo {i+1} ({entry.name}): {exc}")

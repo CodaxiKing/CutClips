@@ -8,7 +8,7 @@
   const MAX_CLIP=15;
   const round2=v=>Math.round(v*100)/100;
   const clock=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
-  const looksLikeTikTok=url=>/^https:\/\/(?:www\.|m\.|vm\.|vt\.)?tiktok\.com\/\S+/i.test(url);
+  const looksLikeTikTok=url=>/^https:\/\/(?:(?:www\.|m\.|vm\.|vt\.)?tiktok\.com\/\S+|(?:www\.|m\.)?youtube\.com\/shorts\/[\w-]{11})/i.test(url);
   function trimmer(f,onUpdate){
     const t={length:null,probed:undefined,loading:false,error:'',manualEnd:false,timer:0};
     t.limits=()=>{
@@ -62,7 +62,7 @@
     f.end.addEventListener('change',()=>{t.manualEnd=f.end.value!=='';t.limits();});
     return t;
   }
-  el('t5Entries').innerHTML=Array.from({length:5},(_,i)=>`<fieldset class="t5-entry"><legend>Posição ${i+1}</legend><span class="t5-number" aria-hidden="true">${i+1}</span><div class="t5-entry-fields"><label for="t5Url${i}">Link do TikTok<input id="t5Url${i}" type="url" required maxlength="600" placeholder="https://www.tiktok.com/@perfil/video/…"></label><label for="t5Name${i}">Nome ao lado do número<input id="t5Name${i}" required maxlength="32" placeholder="Ex.: O gol impossível"></label><div class="t5-trim-heading">✂ Trecho automático · até ${MAX_CLIP}s, ajuste se quiser</div><div class="t5-trim"><label>Início (segundos)<input id="t5Start${i}" type="number" min="0" max="600" step="0.01" value="0"></label><label>Fim (segundos)<input id="t5End${i}" type="number" min="0.5" max="${MAX_CLIP}" step="0.01" placeholder="Automático"></label></div><p class="t5-trim-summary" id="t5TrimSummary${i}"></p><div class="t5-source" id="t5Source${i}" hidden></div></div></fieldset>`).join('');
+  el('t5Entries').innerHTML=Array.from({length:5},(_,i)=>`<fieldset class="t5-entry"><legend>Posição ${i+1}</legend><span class="t5-number" aria-hidden="true">${i+1}</span><div class="t5-entry-fields"><label for="t5Url${i}">Link do TikTok ou YouTube Shorts<input id="t5Url${i}" type="url" required maxlength="600" placeholder="https://www.tiktok.com/@perfil/video/… ou youtube.com/shorts/…"></label><label for="t5Name${i}">Nome ao lado do número<input id="t5Name${i}" required maxlength="32" placeholder="Ex.: O gol impossível"></label><div class="t5-trim-heading">✂ Trecho automático · até ${MAX_CLIP}s, ajuste se quiser</div><div class="t5-trim"><label>Início (segundos)<input id="t5Start${i}" type="number" min="0" max="600" step="0.01" value="0"></label><label>Fim (segundos)<input id="t5End${i}" type="number" min="0.5" max="${MAX_CLIP}" step="0.01" placeholder="Automático"></label></div><p class="t5-trim-summary" id="t5TrimSummary${i}"></p><div class="t5-source" id="t5Source${i}" hidden></div></div></fieldset>`).join('');
   const trims=Array.from({length:5},(_,i)=>trimmer({url:el('t5Url'+i),start:el('t5Start'+i),end:el('t5End'+i)},()=>preview()));
   // Vídeos escolhidos em Descobrir trazem um MP4 tocável: a prévia mostra o trecho real e
   // cada posição pode ser trocada pelo próximo vídeo mais visto do mesmo tópico.
@@ -70,7 +70,7 @@
   const compact=n=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(n||0);
   function rankName(v){
     const text=String(v.title||'').replace(/https?:\/\/\S+/g,'').replace(/[#@][\p{L}\p{M}\p{N}_.]+/gu,'').replace(/[^\p{L}\p{M}\p{N}\p{P}\p{Zs}]/gu,'').replace(/\s+/g,' ').trim();
-    if(text.replace(/\p{P}/gu,'').trim().length<3)return ('@'+v.author).slice(0,32);
+    if(text.replace(/\p{P}/gu,'').trim().length<3)return (v.source==='youtube'?(v.author||'YouTube Shorts'):'@'+v.author).slice(0,32);
     if(text.length<=32)return text;
     const cut=text.slice(0,31),space=cut.lastIndexOf(' ');
     return (space>15?cut.slice(0,space):cut).replace(/[\s,.;:!?-]+$/,'')+'…';
@@ -78,7 +78,7 @@
   function showSource(i){
     const box=el('t5Source'+i),m=media[i];
     box.hidden=!m&&!pool;
-    box.innerHTML=box.hidden?'':`${m?`<img src="${esc(m.cover)}" alt="" referrerpolicy="no-referrer"><div><strong>${compact(m.views)} visualizações</strong><small>@${esc(m.author)} · ${esc(pool?.name||'Descobrir')}</small></div>`:'<div><small>Link colado à mão · a prévia mostra só o texto</small></div>'}${pool?`<button type="button" class="btn btn-outline btn-sm" data-t5-swap="${i}" title="Substituir pelo próximo vídeo mais visto de ${esc(pool.name)}">↻ Trocar vídeo</button>`:''}`;
+    box.innerHTML=box.hidden?'':`${m?`<img src="${esc(m.cover)}" alt="" referrerpolicy="no-referrer"><div><strong>${compact(m.views)} visualizações</strong><small>${m.source==='youtube'?`${esc(m.author||'YouTube Shorts')}`:`@${esc(m.author)}`} · ${esc(pool?.name||'Descobrir')}</small></div>`:'<div><small>Link colado à mão · a prévia mostra só o texto</small></div>'}${pool?`<button type="button" class="btn btn-outline btn-sm" data-t5-swap="${i}" title="Substituir pelo próximo vídeo mais visto de ${esc(pool.name)}">↻ Trocar vídeo</button>`:''}`;
   }
   function showPool(){
     el('t5Pool').innerHTML=pool?`Vídeos de <strong>${esc(pool.name)}</strong> · ${pool.videos.length} disponíveis. Use <b>↻ Trocar vídeo</b> para substituir uma posição. <a href="#/discover">Escolher outro tópico</a>`
@@ -247,7 +247,7 @@
             <button type="button" class="btn btn-outline btn-sm" data-t5-edit="${i}" aria-expanded="false">Editar</button></div>
           ${i in byEntry?friendlyReason(byEntry[i]):''}
           <form class="t5-fix-form" data-t5-form="${i}" hidden novalidate>
-            <label>Link do TikTok<input name="url" type="url" required maxlength="600" value="${esc(e.url)}"></label>
+            <label>Link do TikTok ou YouTube Shorts<input name="url" type="url" required maxlength="600" value="${esc(e.url)}"></label>
             <label>Nome ao lado do número<input name="name" required maxlength="32" value="${esc(e.name)}"></label>
             <div class="t5-trim"><label>Início (segundos)<input name="start" type="number" min="0" max="600" step="0.01" value="${e.start||0}"></label><label>Fim (segundos)<input name="end" type="number" min="0.5" max="${MAX_CLIP}" step="0.01" placeholder="Automático" value="${end}"></label></div>
             <p class="t5-trim-summary" data-t5-summary></p>
@@ -325,7 +325,7 @@
     }
     const key=job.id+':top5:done:'+job.finished_at;if(box.dataset.key===key)return;box.dataset.key=key;
     const clip=job.manifest.clips[0],url=`/api/jobs/${job.id}/clips/${encodeURIComponent(clip.file)}`;
-    box.innerHTML=`${back}<header class="t5-result-header"><div><p class="t5-eyebrow">RANKING PRONTO</p><h1>${esc(job.title)}</h1><p class="t5-help">1080 × 1920 · ${Number(clip.actual_duration).toFixed(1)} segundos · ${job.manifest.timeline.length} vídeos em sequência</p></div><div class="t5-result-actions"><a href="${url}" download class="btn btn-primary">Baixar MP4</a><a href="/api/jobs/${job.id}/download" class="btn btn-outline">Pacote + créditos</a><button class="btn btn-outline" id="t5Reuse">Editar e criar versão</button><button class="btn btn-outline" data-delete-project>Excluir</button></div></header><div class="t5-result-grid"><video src="${url}" poster="/api/jobs/${job.id}/clips/${encodeURIComponent(clip.thumbnail)}" controls playsinline preload="metadata"></video><div class="t5-panel"><h2>Sua sequência</h2><p class="t5-help">O nome é revelado no início de cada trecho e permanece no ranking.</p>${job.manifest.timeline.map(s=>`<div class="t5-timeline-row"><b>${s.rank}</b><div><strong>${esc(s.name)}</strong><p>${s.start.toFixed(1)}s → ${s.end.toFixed(1)}s · <a href="${esc(s.url)}" target="_blank" rel="noopener">TikTok original ↗</a></p></div></div>`).join('')}<p class="t5-help">Para alterar links, nomes ou a frase, use a configuração e gere uma nova versão como outro projeto.</p></div></div>`;
+    box.innerHTML=`${back}<header class="t5-result-header"><div><p class="t5-eyebrow">RANKING PRONTO</p><h1>${esc(job.title)}</h1><p class="t5-help">1080 × 1920 · ${Number(clip.actual_duration).toFixed(1)} segundos · ${job.manifest.timeline.length} vídeos em sequência</p></div><div class="t5-result-actions"><a href="${url}" download class="btn btn-primary">Baixar MP4</a><a href="/api/jobs/${job.id}/download" class="btn btn-outline">Pacote + créditos</a><button class="btn btn-outline" id="t5Reuse">Editar e criar versão</button><button class="btn btn-outline" data-delete-project>Excluir</button></div></header><div class="t5-result-grid"><video src="${url}" poster="/api/jobs/${job.id}/clips/${encodeURIComponent(clip.thumbnail)}" controls playsinline preload="metadata"></video><div class="t5-panel"><h2>Sua sequência</h2><p class="t5-help">O nome é revelado no início de cada trecho e permanece no ranking.</p>${job.manifest.timeline.map(s=>`<div class="t5-timeline-row"><b>${s.rank}</b><div><strong>${esc(s.name)}</strong><p>${s.start.toFixed(1)}s → ${s.end.toFixed(1)}s · <a href="${esc(s.url)}" target="_blank" rel="noopener">Vídeo original ↗</a></p></div></div>`).join('')}<p class="t5-help">Para alterar links, nomes ou a frase, use a configuração e gere uma nova versão como outro projeto.</p></div></div>`;
     window.TopFiveTools?.mount(job,box);
     el('t5Reuse').onclick=()=>{pool=null;fill(job.settings.top5);el('t5Error').textContent='';location.hash='#/top5';};
   }};
