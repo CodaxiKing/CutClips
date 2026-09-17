@@ -1,0 +1,78 @@
+const {chromium} = require('playwright');
+const fs = require('node:fs');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+(async()=>{
+  const browser = await chromium.launch({headless:true});
+  const page = await browser.newPage({viewport:{width:1440,height:1000}});
+  page.setDefaultTimeout(15000);
+  page.setDefaultNavigationTimeout(20000);
+  const errors=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  page.on('dialog', dialog=>dialog.accept());
+  const output=path.resolve('tests/artifacts');
+  try {
+    await page.goto('http://127.0.0.1:8765/',{waitUntil:'networkidle'});
+    await page.getByRole('heading',{name:'Resultados por versão de clipe'}).waitFor();
+    await page.screenshot({path:path.join(output,'home.png'),fullPage:true});
+    const jobs=await (await page.request.get('http://127.0.0.1:8765/api/jobs')).json();
+    const id=jobs.jobs[0].id;
+    const initial=await (await page.request.get(`http://127.0.0.1:8765/api/jobs/${id}`)).json();
+    const nextRevision=(initial.manifest.clips[0].revision||0)+1;
+    await page.goto(`http://127.0.0.1:8765/#/job/${id}`);
+    await page.getByRole('button',{name:'Revisar e editar'}).click();
+    await page.locator('#editWords input').first().waitFor();
+    await page.locator('#editWords input').nth(1).fill('exemplo');
+    await page.locator('[data-setting="layout"]').selectOption('split');
+    await page.locator('#editEnd').fill('4.5');
+    await page.locator('#editEnd').dispatchEvent('change');
+    await page.waitForFunction(()=>document.getElementById('editVideo').readyState>=2,null,{timeout:15000});
+    await page.waitForFunction(()=>{
+      const video=document.getElementById('editVideo');
+      const pixels=document.getElementById('editCanvas').getContext('2d').getImageData(100,100,1,1).data;
+      return !video.seeking && video.readyState>=2 && pixels[0]+pixels[1]+pixels[2]>30;
+    },null,{timeout:15000});
+    await page.locator('.studio-dialog').screenshot({path:path.join(output,'editor.png')});
+    await page.getByRole('button',{name:'Salvar e renderizar este clipe'}).click();
+    await page.locator('.studio-dialog').waitFor({state:'hidden'});
+    await page.waitForFunction(async id=>{
+      const job=await (await fetch(`/api/jobs/${id}`)).json();
+      const task=job.edits[0];
+      if(task?.status==='error')throw Error(task.error);
+      return task?.status==='done';
+    },id,{timeout:60000});
+    await page.waitForFunction(revision=>document.querySelector('.studio-status')?.textContent.includes(`versão ${revision}`),nextRevision,{timeout:10000});
+    await page.getByRole('button',{name:'Preparar publicação'}).click();
+    await page.locator('#publishForm [name="title"]').fill('Título revisado no navegador');
+    await page.locator('#publishForm [name="description"]').fill('Uma descrição de teste. #educação');
+    await page.locator('#publishForm [name="status"]').selectOption('approved');
+    await page.locator('#publishForm input[name="thumbnail"]').first().check();
+    await page.screenshot({path:path.join(output,'publication.png'),fullPage:true});
+    await page.getByRole('button',{name:'Salvar publicação'}).click();
+    await page.locator('.studio-dialog').waitFor({state:'hidden'});
+    await page.getByRole('button',{name:'Registrar resultados'}).click();
+    await page.locator('#metricForm [name="views"]').fill('1500');
+    await page.locator('#metricForm [name="average_percentage"]').fill('82');
+    await page.locator('#metricForm [name="subscribers"]').fill('12');
+    await page.locator('#metricForm [name="production_minutes"]').fill('20');
+    await page.getByRole('button',{name:'Salvar resultados'}).click();
+    await page.locator('.studio-dialog').waitFor({state:'hidden'});
+    const pack=await page.request.get(`http://127.0.0.1:8765/api/jobs/${id}/download?approved_only=true`);
+    assert.equal(pack.status(),200);
+    fs.writeFileSync(path.join(output,'reviewed-package.zip'),await pack.body());
+    await page.goto('http://127.0.0.1:8765/#/');
+    await page.waitForFunction(()=>document.getElementById('analyticsPanel').textContent.includes('1.500'));
+    await page.screenshot({path:path.join(output,'dashboard.png'),fullPage:true});
+    await page.setViewportSize({width:390,height:844});
+    await page.goto(`http://127.0.0.1:8765/#/job/${id}`);
+    await page.getByRole('button',{name:'Revisar e editar'}).click();
+    await page.locator('#editWords input').first().waitFor();
+    await page.locator('.studio-dialog').screenshot({path:path.join(output,'editor-mobile.png')});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    assert.deepEqual(errors,[]);
+    console.log(JSON.stringify({passed:true,job:id,scenarios:['editor','word correction','split render','publication','cover','metrics','approved zip','mobile'],browserErrors:errors}));
+  } catch(error) {
+    await page.screenshot({path:path.join(output,'browser-failure.png')}).catch(()=>{});
+    throw error;
+  } finally { await browser.close(); }
+})().catch(error=>{console.error(error);process.exit(1);});

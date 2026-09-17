@@ -1,0 +1,61 @@
+/* Acabamento comum a todas as abas: navegação, formatos da home, cards e cabeçalhos. */
+
+/* ---- navegação: a aba atual fica marcada ---- */
+.nav-links{gap:2px}
+.nav-links a{padding:7px 12px;border-radius:999px;white-space:nowrap;transition:color .15s,background .15s}
+.nav-links a:hover{background:rgba(255,255,255,.05)}
+.nav-links a[aria-current="page"]{color:var(--fg);background:rgba(255,255,255,.1)}
+@media(max-width:560px){
+  .nav-links{justify-content:flex-start;overflow-x:auto;scrollbar-width:none;margin-inline:-6px;padding-inline:2px;font-size:13px}
+  .nav-links::-webkit-scrollbar{display:none}
+  .nav-links a{padding:6px 11px}
+}
+
+/* ---- home: formatos prontos ---- */
+.formats-section{margin:64px 0 0}
+.formats-section .section-head span{font-size:13.5px}
+.formats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.format-card{--tint:239,208,128;position:relative;display:flex;gap:14px;align-items:flex-start;padding:20px 20px 20px 18px;
+  border:1px solid var(--line);border-radius:var(--r);background:linear-gradient(150deg,rgba(var(--tint),.07),var(--surface) 55%);
+  text-decoration:none;overflow:hidden;transition:border-color .2s,transform .2s,box-shadow .2s}
+.format-card:hover{border-color:rgba(var(--tint),.45);transform:translateY(-2px);box-shadow:0 18px 40px -22px rgba(var(--tint),.45)}
+.format-card:focus-visible{outline:2px solid rgba(var(--tint),.8);outline-offset:2px}
+.format-card.quiz{--tint:196,181,253}
+.format-card.reaction{--tint:94,234,212}
+.format-icon{flex:none;display:grid;place-items:center;width:42px;height:42px;border-radius:12px;font-weight:800;font-size:19px;
+  color:rgb(var(--tint));background:rgba(var(--tint),.12);border:1px solid rgba(var(--tint),.25)}
+.format-card strong{display:block;font-size:15.5px;letter-spacing:-.01em;margin-top:1px}
+.format-card p{margin:5px 0 0;font-size:13px;line-height:1.55;color:var(--muted)}
+.format-card small{display:inline-block;margin-top:10px;font-size:11px;font-weight:600;letter-spacing:.04em;color:rgb(var(--tint))}
+.format-go{margin-left:auto;align-self:center;color:var(--dim);font-size:18px;transition:transform .2s,color .2s}
+.format-card:hover .format-go{transform:translateX(3px);color:rgb(var(--tint))}
+@media(max-width:860px){.formats{grid-template-columns:1fr}}
+
+/* ---- cards de projeto: tipo do projeto ---- */
+.kind{position:absolute;bottom:10px;left:10px;display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;
+  font-size:11px;font-weight:650;letter-spacing:.02em;background:rgba(0,0,0,.62);border:1px solid rgba(255,255,255,.12);
+  color:#d4d4d8;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.kind.top5{color:#efd080}
+.kind.quiz{color:#c4b5fd}
+.kind.reaction{color:#5eead4}
+
+/* ---- cabeçalhos das montagens ---- */
+.t5-eyebrow:has(.page-icon){display:flex;align-items:center;gap:10px}
+.page-icon{display:inline-grid;place-items:center;min-width:29px;height:21px;padding:0 6px;border-radius:6px;font-size:11px;font-weight:800;
+  letter-spacing:0;color:#181207;background:#efd080}
+
+/* ---- análise do canal: seletor de arquivo ---- */
+.yt-upload input[type=file]{border:1px dashed rgba(255,255,255,.18)!important;border-radius:10px;color:var(--muted);font-size:12.5px;cursor:pointer;width:100%}
+.yt-upload input[type=file]::file-selector-button{margin-right:12px;padding:8px 16px;border:0;border-radius:999px;background:#fff;color:#000;
+  font:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:background .15s}
+.yt-upload input[type=file]:hover::file-selector-button{background:#e4e4e7}
+
+/* ---- montagens: seletores de arquivo e campos numéricos ---- */
+.montage input[type=range]{height:18px}
+.montage select{appearance:none;-webkit-appearance:none;padding-right:34px!important;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%23a1a1aa' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E")!important;
+  background-repeat:no-repeat!important;background-position:right 12px center!important;background-size:12px!important}
+
+/* Rótulo que é botão (enviar música) mantém o alinhamento do botão. */
+.montage label.btn{display:inline-flex;color:var(--fg)}
+@media(max-width:640px){.formats-section .section-head{flex-wrap:wrap;row-gap:2px}.formats-section .section-head span{flex-basis:100%}}

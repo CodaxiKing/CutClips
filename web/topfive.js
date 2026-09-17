@@ -1,0 +1,205 @@
+(() => {
+  'use strict';
+  const el=id=>document.getElementById(id);
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // Trecho automático: ao colar o link, a duração do vídeo define o fim (até MAX_CLIP)
+  // e os limites dos campos, para nunca pedir além do que o vídeo tem. Serve ao
+  // formulário e à correção de uma posição na tela de erro.
+  const MAX_CLIP=15;
+  const round2=v=>Math.round(v*100)/100;
+  const clock=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+  const looksLikeTikTok=url=>/^https:\/\/(?:www\.|m\.|vm\.|vt\.)?tiktok\.com\/\S+/i.test(url);
+  function trimmer(f,onUpdate){
+    const t={length:null,probed:undefined,loading:false,error:'',manualEnd:false,timer:0};
+    t.limits=()=>{
+      const total=t.length;
+      let s=Math.max(0,Number(f.start.value)||0);
+      if(total)s=Math.min(s,Math.max(0,round2(total-.5)));
+      if(Number(f.start.value)!==s||f.start.value==='')f.start.value=s;
+      f.start.max=total?Math.max(0,round2(total-.5)):600;
+      const ceiling=round2(total?Math.min(s+MAX_CLIP,total):s+MAX_CLIP);
+      f.end.min=round2(Math.min(s+.5,ceiling));f.end.max=ceiling;
+      if(!t.manualEnd)f.end.value=total?ceiling:'';
+      else if(f.end.value!==''){const e=Number(f.end.value);if(e>ceiling)f.end.value=ceiling;else if(e<s+.5)f.end.value=round2(Math.min(s+.5,ceiling));}
+    };
+    t.probe=async()=>{
+      const url=f.url.value.trim();
+      if(t.probed===url)return;
+      t.probed=url;t.length=null;t.error='';t.loading=looksLikeTikTok(url);
+      t.limits();onUpdate();
+      if(!t.loading)return;
+      try{
+        const response=await fetch('/api/top5/probe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+        const body=await response.json().catch(()=>({}));
+        if(t.probed!==url)return;
+        if(!response.ok)throw new Error(typeof body.detail==='string'?body.detail:'Não foi possível ler a duração do vídeo');
+        t.length=body.duration;
+      }catch(error){if(t.probed===url)t.error=error.message;}
+      if(t.probed!==url)return;
+      t.loading=false;t.limits();onUpdate();
+    };
+    // Duração já conhecida (vídeo baixado no projeto): evita consultar o TikTok de novo.
+    t.known=(url,length)=>{t.probed=url;t.length=length;t.loading=false;t.error='';t.limits();onUpdate();};
+    t.newSource=()=>{clearTimeout(t.timer);if(f.url.value.trim()===t.probed)return;f.start.value=0;t.manualEnd=false;t.probe();};
+    t.check=()=>{
+      const total=t.length,s=Number(f.start.value)||0,e=f.end.value===''?null:Number(f.end.value);
+      const startMessage=total&&s>total-.5?`O início vai até ${round2(Math.max(0,total-.5))}s: o vídeo tem ${round2(total)}s.`:'';
+      const endMessage=e===null?'':e-s<.5?'O fim deve ser pelo menos 0,5 segundo depois do início.'
+        :e-s>MAX_CLIP+.005?`Cada trecho pode ter no máximo ${MAX_CLIP} segundos.`
+        :total&&e>total+.005?`O vídeo tem só ${round2(total)}s.`:'';
+      f.start.setCustomValidity(startMessage);f.end.setCustomValidity(endMessage);
+      if(startMessage||endMessage)return startMessage||endMessage;
+      if(t.loading)return 'Lendo a duração do vídeo…';
+      const length=total?`Vídeo de ${clock(total)} · `:'';
+      if(e===null)return t.error?`Não deu para ler a duração agora; o trecho terá até ${MAX_CLIP}s a partir de ${s}s.`
+        :`${length}Cole o link: o trecho de até ${MAX_CLIP}s é preenchido sozinho.`;
+      return `${length}De ${s}s a ${e}s · ${round2(e-s)}s no ranking`;
+    };
+    // Eventos dos três campos: link colado (com pausa), fim editado à mão, limites ao sair do campo.
+    f.url.addEventListener('input',()=>{clearTimeout(t.timer);t.timer=setTimeout(()=>{if(looksLikeTikTok(f.url.value.trim()))t.newSource();},700);});
+    f.url.addEventListener('change',t.newSource);
+    f.start.addEventListener('change',t.limits);
+    f.end.addEventListener('change',()=>{t.manualEnd=f.end.value!=='';t.limits();});
+    return t;
+  }
+  el('t5Entries').innerHTML=Array.from({length:5},(_,i)=>`<fieldset class="t5-entry"><legend>Posição ${i+1}</legend><span class="t5-number" aria-hidden="true">${i+1}</span><div class="t5-entry-fields"><label for="t5Url${i}">Link do TikTok<input id="t5Url${i}" type="url" required maxlength="600" placeholder="https://www.tiktok.com/@perfil/video/…"></label><label for="t5Name${i}">Nome ao lado do número<input id="t5Name${i}" required maxlength="32" placeholder="Ex.: O gol impossível"></label><div class="t5-trim-heading">✂ Trecho automático · até ${MAX_CLIP}s, ajuste se quiser</div><div class="t5-trim"><label>Início (segundos)<input id="t5Start${i}" type="number" min="0" max="600" step="0.01" value="0"></label><label>Fim (segundos)<input id="t5End${i}" type="number" min="0.5" max="${MAX_CLIP}" step="0.01" placeholder="Automático"></label></div><p class="t5-trim-summary" id="t5TrimSummary${i}"></p></div></fieldset>`).join('');
+  const trims=Array.from({length:5},(_,i)=>trimmer({url:el('t5Url'+i),start:el('t5Start'+i),end:el('t5End'+i)},()=>preview()));
+  function data(){return {headline:el('t5Headline').value.trim(),order:el('t5Order').value,layout:el('t5Layout').value,normalize_audio:el('t5Normalize').checked,title_font:el('t5TitleFont').value,rank_font:el('t5RankFont').value,text_effect:el('t5Effect').value,accent_color:el('t5Accent').value,title_color:el('t5TitleColor').value,rank_color:el('t5RankColor').value,outline_color:el('t5OutlineColor').value,outline_width:Number(el('t5OutlineWidth').value),shadow_color:el('t5ShadowColor').value,shadow_depth:Number(el('t5ShadowDepth').value),animation_style:el('t5AnimationStyle').value,title_size:Number(el('t5TitleSize').value),rank_size:Number(el('t5RankSize').value),rank_position:Number(el('t5RankPosition').value),animate_reveal:el('t5Animate').checked,animate_intro:el('t5Intro').checked,watermark:el('t5Watermark').value.trim(),watermark_opacity:Number(el('t5WatermarkOpacity').value),entries:Array.from({length:Number(el('t5Count').value)},(_,i)=>({url:el('t5Url'+i).value.trim(),name:el('t5Name'+i).value.trim(),start:Number(el('t5Start'+i).value||0),duration:el('t5End'+i).value===''?null:round2(Number(el('t5End'+i).value)-Number(el('t5Start'+i).value||0))}))};}
+  function preview(replay=false){
+    const spec=data(),count=spec.entries.length;
+    el('t5Watermark').setCustomValidity(!spec.watermark||/^@?[\p{L}\p{N}_.-]{1,31}$/u.test(spec.watermark)?'':'Use até 31 letras, números, pontos, hífens ou sublinhados, sem espaços.');
+    document.querySelectorAll('.t5-entry').forEach((row,i)=>{row.hidden=i>=count;row.querySelectorAll('input').forEach(input=>input.disabled=i>=count);});
+    const order=Array.from({length:count},(_,i)=>i+1);if(spec.order==='countdown')order.reverse();
+    const step=Math.min(Number(el('t5PreviewStep').value)||0,count-1),rank=order[step],seen=order.slice(0,step+1);
+    el('t5PreviewStep').innerHTML=order.map((r,i)=>`<option value="${i}">Trecho ${i+1} · posição ${r}</option>`).join('');el('t5PreviewStep').value=step;
+    el('t5Order').options[0].textContent=Array.from({length:count},(_,i)=>i+1).join(' → ');el('t5Order').options[1].textContent=Array.from({length:count},(_,i)=>count-i).join(' → ');
+    el('t5Create').textContent=`Montar meu Top ${count} →`;
+    const phone=document.querySelector('.t5-phone');phone.dataset.effect=spec.text_effect;phone.dataset.motion=spec.animation_style;
+    phone.style.setProperty('--t5-rank-color',spec.rank_color);phone.style.setProperty('--t5-outline-color',spec.outline_color);phone.style.setProperty('--t5-outline-width',`${spec.outline_width/10.8}cqw`);phone.style.setProperty('--t5-shadow-color',spec.shadow_color);phone.style.setProperty('--t5-shadow-depth',`${spec.shadow_depth/10.8}cqw`);
+    el('t5OutlineValue').textContent=spec.outline_width;el('t5ShadowValue').textContent=spec.shadow_depth;phone.dataset.animate=String(spec.animate_reveal);phone.dataset.intro=String(spec.animate_intro);phone.dataset.opening=String(step===0);
+    spec.entries.forEach((item,i)=>{el('t5TrimSummary'+i).textContent=trims[i].check();});
+    el('t5PreviewWatermark').textContent=spec.watermark?'@'+spec.watermark.replace(/^@+/,''):'';el('t5PreviewWatermark').style.opacity=spec.watermark_opacity/100;
+    if(replay===true){phone.classList.remove('t5-playing');void phone.offsetWidth;phone.classList.add('t5-playing');}
+    phone.style.setProperty('--t5-accent',spec.accent_color);phone.style.setProperty('--t5-title-color',spec.title_color);
+    phone.style.setProperty('--t5-title-font',spec.title_font);phone.style.setProperty('--t5-rank-font',spec.rank_font);
+    phone.style.setProperty('--t5-title-size',`${spec.title_size/10.8}cqw`);phone.style.setProperty('--t5-rank-size',`${spec.rank_size/10.8}cqw`);
+    phone.style.setProperty('--t5-number-size',`${(spec.rank_size+16)/10.8}cqw`);
+    phone.style.setProperty('--t5-rank-top',`${(1920*spec.rank_position/100-((count-1)*150+spec.rank_size)/2)/19.2}%`);
+    el('t5PreviewTitle').textContent=spec.headline||'Sua frase aparece aqui';
+    el('t5PreviewClip').textContent=`Vídeo da posição ${rank}`;
+    el('t5PreviewRanks').innerHTML=spec.entries.map((item,i)=>`<li class="${i+1===rank?'active':seen.includes(i+1)?'revealed':'future'}"><b style="--t5-delay:${i*45}ms">${i+1}.</b><span>${seen.includes(i+1)?esc(item.name||`Nome do vídeo ${i+1}`):''}</span></li>`).join('');
+  }
+  function fill(spec){
+    el('t5Preset').value='custom';
+    el('t5Count').value=Math.max(3,Math.min(5,spec.entries?.length||5));
+    const controls={t5RankColor:spec.rank_color||'#ffffff',t5OutlineColor:spec.outline_color||'#101010',t5OutlineWidth:spec.outline_width??5,t5ShadowColor:spec.shadow_color||'#000000',t5ShadowDepth:spec.shadow_depth??2,t5AnimationStyle:spec.animation_style||'slide',t5TitleFont:spec.title_font||'Impact',t5RankFont:spec.rank_font||'Arial',t5Effect:spec.text_effect||'outline',t5Accent:spec.accent_color||'#ffdd45',t5TitleColor:spec.title_color||'#ffffff',t5TitleSize:spec.title_size||72,t5RankSize:spec.rank_size||54,t5RankPosition:spec.rank_position||50,t5Watermark:spec.watermark||'',t5WatermarkOpacity:spec.watermark_opacity??40};
+    Object.entries(controls).forEach(([id,value])=>el(id).value=value);el('t5Animate').checked=spec.animate_reveal!==false;el('t5Intro').checked=spec.animate_intro!==false;
+    el('t5Headline').value=spec.headline||'';el('t5Order').value=spec.order||'ascending';el('t5Layout').value=spec.layout||'fit';el('t5Normalize').checked=spec.normalize_audio!==false;
+    spec.entries?.slice(0,5).forEach((e,i)=>{el('t5Url'+i).value=e.url||'';el('t5Name'+i).value=e.name||'';el('t5Start'+i).value=e.start||0;el('t5End'+i).value=e.duration==null?'':Number(((e.start||0)+e.duration).toFixed(2));const trim=trims[i];trim.manualEnd=e.duration!=null;trim.probed=undefined;trim.limits();trim.probe();});preview();
+  }
+  const presets={
+    comics:{title:'Comic Sans MS',rank:'Comic Sans MS',titleColor:'#ffe84a',rankColor:'#ffffff',accent:'#ff7657',outline:'#171126',width:8,shadow:'#000000',depth:4,effect:'outline',motion:'pop'},
+    bubble:{title:'Comic Sans MS',rank:'Comic Sans MS',titleColor:'#ff99dc',rankColor:'#fff2fc',accent:'#80faff',outline:'#702a99',width:10,shadow:'#321046',depth:5,effect:'outline',motion:'pop'},
+    neon:{title:'Bahnschrift',rank:'Arial',titleColor:'#c2ffff',rankColor:'#ffffff',accent:'#ff73f4',outline:'#963dff',width:4,shadow:'#461670',depth:2,effect:'neon',motion:'slide'},
+    marker:{title:'Segoe Print',rank:'Segoe Print',titleColor:'#ffffff',rankColor:'#ffffff',accent:'#75d9ff',outline:'#152e58',width:5,shadow:'#071225',depth:3,effect:'shadow',motion:'slide'},
+    arcade:{title:'Consolas',rank:'Consolas',titleColor:'#a7ff5b',rankColor:'#ffffff',accent:'#ffdd45',outline:'#132818',width:6,shadow:'#000000',depth:5,effect:'shadow',motion:'pop'}
+  };
+  el('t5Preset').onchange=()=>{const p=presets[el('t5Preset').value];if(!p)return;const values={t5TitleFont:p.title,t5RankFont:p.rank,t5TitleColor:p.titleColor,t5RankColor:p.rankColor,t5Accent:p.accent,t5OutlineColor:p.outline,t5OutlineWidth:p.width,t5ShadowColor:p.shadow,t5ShadowDepth:p.depth,t5Effect:p.effect,t5AnimationStyle:p.motion};Object.entries(values).forEach(([id,value])=>el(id).value=value);el('t5Intro').checked=true;el('t5Animate').checked=true;preview(true);};
+  el('topfiveForm').addEventListener('input',event=>{if(event.target.id!=='t5Preset')el('t5Preset').value='custom';preview();});el('topfiveForm').addEventListener('change',preview);el('t5PreviewStep').onchange=()=>preview(true);el('t5Replay').onclick=()=>preview(true);preview(true);
+  el('topfiveForm').onsubmit=async event=>{
+    event.preventDefault();el('t5Create').disabled=true;el('t5Error').textContent='';
+    try{
+      const response=await fetch('/api/top5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data())});const result=await response.json();
+      if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:(result.detail||[]).map(x=>`${x.loc?.[1]==='entries'?`Vídeo ${Number(x.loc[2])+1}: `:''}${x.msg}`).join('\n')||'Não foi possível criar o ranking');
+      location.hash='#/job/'+result.job_id;window.refresh?.();
+    }catch(error){el('t5Error').textContent=error.message;}finally{el('t5Create').disabled=false;}
+  };
+  // "DownloadError: Vídeo 3 (Nome): motivo\nVídeo 5 (Nome): motivo" -> {3: motivo, 5: motivo}
+  function parseFailures(error){
+    const text=String(error||'').replace(/^\w+(?:Error|Exception): /,''),byEntry={},general=[];
+    text.split('\n').forEach(line=>{const m=/^Vídeo (\d+)(?: \([^)]*\))?: ([\s\S]*)$/.exec(line.trim());if(m)byEntry[Number(m[1])-1]=m[2];else if(line.trim())general.push(line.trim());});
+    return {byEntry,general:general.join(' ')};
+  }
+  function friendlyReason(reason){
+    const [main,detail]=reason.split(/\s*Detalhe:\s*/);
+    return `<p class="t5-fix-reason">${esc(main)}</p>${detail?`<p class="t5-fix-detail">${esc(detail)}</p>`:''}`;
+  }
+  function renderError(job,box,back){
+    const key=job.id+':top5:error:'+job.error;if(box.dataset.key===key)return;box.dataset.key=key;
+    const spec=job.settings.top5,entries=spec.entries,{byEntry,general}=parseFailures(job.error),failed=Object.keys(byEntry).map(Number);
+    const title=failed.length?`${failed.length===1?'Um vídeo precisa':`${failed.length} vídeos precisam`} de ajuste`:'Não foi possível montar o ranking';
+    box.innerHTML=`${back}<div class="state-card t5-fix">
+      <div class="err-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg><h1>${esc(title)}</h1></div>
+      <p class="state-sub">${failed.length?'Corrija só a posição marcada e tente de novo. Os vídeos que já foram baixados e os trechos prontos são reaproveitados.':esc(general||'Tente novamente; os vídeos já baixados são reaproveitados.')}</p>
+      <ol class="t5-fix-list">${entries.map((e,i)=>{const end=e.duration==null?'':round2((e.start||0)+e.duration);return `<li class="t5-fix-row${i in byEntry?' is-failed':''}" data-t5-row="${i}">
+        <span class="t5-number" aria-hidden="true">${i+1}</span>
+        <div class="t5-fix-main">
+          <div class="t5-fix-head"><div><strong>${esc(e.name)}</strong><span class="t5-fix-state" data-t5-state>${i in byEntry?'Precisa de ajuste':'Verificando…'}</span></div>
+            <button type="button" class="btn btn-outline btn-sm" data-t5-edit="${i}" aria-expanded="false">Editar</button></div>
+          ${i in byEntry?friendlyReason(byEntry[i]):''}
+          <form class="t5-fix-form" data-t5-form="${i}" hidden novalidate>
+            <label>Link do TikTok<input name="url" type="url" required maxlength="600" value="${esc(e.url)}"></label>
+            <label>Nome ao lado do número<input name="name" required maxlength="32" value="${esc(e.name)}"></label>
+            <div class="t5-trim"><label>Início (segundos)<input name="start" type="number" min="0" max="600" step="0.01" value="${e.start||0}"></label><label>Fim (segundos)<input name="end" type="number" min="0.5" max="${MAX_CLIP}" step="0.01" placeholder="Automático" value="${end}"></label></div>
+            <p class="t5-trim-summary" data-t5-summary></p>
+            <p class="t5-fix-form-error" data-t5-form-error role="alert"></p>
+            <div class="t5-fix-actions"><button class="btn btn-primary btn-sm" type="submit">Salvar e tentar novamente</button><button class="btn btn-outline btn-sm" type="button" data-t5-cancel>Cancelar</button></div>
+          </form>
+        </div></li>`;}).join('')}</ol>
+      <details class="t5-fix-tech"><summary>Detalhes técnicos</summary><div class="err-box">${esc(job.error)}</div></details>
+      <div class="t5-fix-actions"><button class="btn btn-primary btn-sm" data-retry-project>Tentar novamente sem mudar</button><button class="btn btn-danger btn-sm" data-delete-project>Excluir projeto</button></div>
+    </div>`;
+    const known=[];
+    const forms=entries.map((e,i)=>{
+      const form=box.querySelector(`[data-t5-form="${i}"]`),row=box.querySelector(`[data-t5-row="${i}"]`),button=row.querySelector('[data-t5-edit]');
+      const summary=()=>{form.querySelector('[data-t5-summary]').textContent=trim.check();};
+      const field=n=>form.elements.namedItem(n);
+      const trim=trimmer({url:field('url'),start:field('start'),end:field('end')},summary);
+      trim.manualEnd=e.duration!=null;
+      const toggle=open=>{form.hidden=!open;button.hidden=open;button.setAttribute('aria-expanded',String(open));if(open){
+        // Início depois do fim do vídeo: volta ao trecho automático em vez de espremer 0,5s no final.
+        if(known[i]&&field('url').value.trim()===e.url&&Number(field('start').value)>known[i]-.5){field('start').value=0;field('end').value='';trim.manualEnd=false;}
+        if(known[i]&&field('url').value.trim()===e.url)trim.known(e.url,known[i]);else trim.probe();summary();}};
+      button.onclick=()=>toggle(true);
+      form.querySelector('[data-t5-cancel]').onclick=()=>{form.reset();trim.manualEnd=e.duration!=null;trim.probed=undefined;form.querySelector('[data-t5-form-error]').textContent='';toggle(false);};
+      form.addEventListener('input',summary);form.addEventListener('change',summary);
+      form.onsubmit=async event=>{
+        event.preventDefault();trim.limits();summary();
+        const problem=form.querySelector('[data-t5-form-error]');
+        if(!form.checkValidity()){problem.textContent=[...form.elements].find(x=>x.validationMessage)?.validationMessage||'Confira os campos';return;}
+        const submit=form.querySelector('[type=submit]');submit.disabled=true;problem.textContent='';
+        const start=Number(field('start').value)||0;
+        const body={url:field('url').value.trim(),name:field('name').value.trim(),start,duration:field('end').value===''?null:Math.min(MAX_CLIP,round2(Number(field('end').value)-start))};
+        try{
+          const response=await fetch(`/api/top5/${job.id}/entries/${i}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+          const result=await response.json().catch(()=>({}));
+          if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:(result.detail||[]).map(x=>x.msg).join('\n')||'Não foi possível salvar');
+          window.toast?.(`Posição ${i+1} salva · montando de novo`);box.dataset.key='';window.refresh?.();
+        }catch(error){problem.textContent=error.message;submit.disabled=false;}
+      };
+      return {toggle};
+    });
+    // Abre as posições com problema depois de saber quais vídeos já estão baixados,
+    // para usar a duração local em vez de consultar o TikTok de novo.
+    fetch(`/api/top5/${job.id}/sources`).then(r=>r.ok?r.json():null).then(result=>{
+      if(!result||box.dataset.key!==key)return;
+      result.sources.forEach(s=>{
+        const state=box.querySelector(`[data-t5-row="${s.index}"] [data-t5-state]`);if(!state)return;
+        if(s.downloaded){known[s.index]=s.duration;const e=entries[s.index],from=e.start||0,to=Math.min(from+(e.duration??MAX_CLIP),s.duration),sec=v=>`${Math.round(v*10)/10}s`.replace('.',',');
+          state.textContent=`✓ Baixado · vídeo de ${clock(s.duration)}`+(s.index in byEntry||to-from<.5?'':` · trecho ${sec(from)}–${sec(to)}`);}
+        else state.textContent=s.index in byEntry?'Precisa de ajuste':'Ainda não baixado';
+      });
+    }).catch(()=>{}).finally(()=>{if(box.dataset.key===key)failed.forEach(i=>forms[i]?.toggle(true));});
+  }
+  window.TopFive={renderError,renderProject(job,box,back){
+    if(job.status!=='done'){
+      const pct=Math.round((job.progress||0)*100);
+      box.innerHTML=`${back}<div class="state-card"><p class="t5-eyebrow">MONTAGEM DE RANKING</p><h1>${esc(job.title)}</h1><p class="state-sub">${job.status==='queued'?'Na fila. A montagem começa assim que o worker estiver livre.':esc(job.stage)}</p><div class="big-progress"><i style="width:${pct}%"></i></div><p>${pct}% · Download → sequência → título e ranking</p><p class="note">O processamento continua mesmo se você fechar esta página.</p></div>`;
+      return;
+    }
+    const key=job.id+':top5:done:'+job.finished_at;if(box.dataset.key===key)return;box.dataset.key=key;
+    const clip=job.manifest.clips[0],url=`/api/jobs/${job.id}/clips/${encodeURIComponent(clip.file)}`;
+    box.innerHTML=`${back}<header class="t5-result-header"><div><p class="t5-eyebrow">RANKING PRONTO</p><h1>${esc(job.title)}</h1><p class="t5-help">1080 × 1920 · ${Number(clip.actual_duration).toFixed(1)} segundos · ${job.manifest.timeline.length} vídeos em sequência</p></div><div class="t5-result-actions"><a href="${url}" download class="btn btn-primary">Baixar MP4</a><a href="/api/jobs/${job.id}/download" class="btn btn-outline">Pacote + créditos</a><button class="btn btn-outline" id="t5Reuse">Editar e criar versão</button><button class="btn btn-outline" data-delete-project>Excluir</button></div></header><div class="t5-result-grid"><video src="${url}" poster="/api/jobs/${job.id}/clips/${encodeURIComponent(clip.thumbnail)}" controls playsinline preload="metadata"></video><div class="t5-panel"><h2>Sua sequência</h2><p class="t5-help">O nome é revelado no início de cada trecho e permanece no ranking.</p>${job.manifest.timeline.map(s=>`<div class="t5-timeline-row"><b>${s.rank}</b><div><strong>${esc(s.name)}</strong><p>${s.start.toFixed(1)}s → ${s.end.toFixed(1)}s · <a href="${esc(s.url)}" target="_blank" rel="noopener">TikTok original ↗</a></p></div></div>`).join('')}<p class="t5-help">Para alterar links, nomes ou a frase, use a configuração e gere uma nova versão como outro projeto.</p></div></div>`;
+    el('t5Reuse').onclick=()=>{fill(job.settings.top5);el('t5Error').textContent='';location.hash='#/top5';};
+  }};
+})();
