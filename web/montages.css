@@ -231,3 +231,29 @@
 .mg-generate-button:disabled{opacity:.5;cursor:progress}
 .mg-generate-side{width:100%;margin-top:14px}
 @media(max-width:820px){.mg-generate-side{display:none}.mg-summary li{grid-template-columns:1fr;gap:2px}}
+
+/* VS: os dois vídeos numa faixa no meio, com o resto desfocado no vídeo final. */
+.mg-duo.mg-vs>.mg-half{top:var(--mg-band-top,22%);height:var(--mg-band-height,52%);bottom:auto}
+.mg-duo.mg-vs{background:linear-gradient(160deg,#2b2340,#141a24 55%,#241a2c)}
+.mg-duo.mg-vs .mg-divider{top:var(--mg-band-top,22%);height:var(--mg-band-height,52%);bottom:auto}
+.mg-duo.mg-vs>.mg-tag,.mg-duo.mg-vs.mg-has-title>.mg-tag{top:calc(var(--mg-band-top,22%) + var(--mg-band-height,52%) + 1.4%)}
+.mg-badge{display:none}
+.mg-duo.mg-vs .mg-badge{display:block;position:absolute;left:50%;top:calc(var(--mg-band-top,22%) + var(--mg-band-height,52%)/2);transform:translate(-50%,-50%);font:700 13.9cqw/1 Arial,sans-serif;color:#fff;text-shadow:0 0 1.4cqw #000,.2cqw .2cqw .4cqw #000;-webkit-text-stroke:.65cqw #101010;paint-order:stroke fill;animation:mg-vs-pulse 1.2s ease-in-out infinite}
+@keyframes mg-vs-pulse{0%,60%,100%{transform:translate(-50%,-50%) scale(1)}12%{transform:translate(-50%,-50%) scale(1.22)}}
+.mg-mark{display:none}
+.mg-duo.mg-vs .mg-mark{display:block;position:absolute;left:0;right:0;top:87.5%;text-align:center;font:700 4.3cqw Arial,sans-serif;color:#fff;text-shadow:1px 1px 2px #111}
+@media(prefers-reduced-motion:reduce){.mg-duo.mg-vs .mg-badge{animation:none}}
+
+/* Prévia da reação tocando os vídeos, com título e @ na mesma medida do vídeo final. */
+.mg-half video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.mg-phone[data-fit=contain] .mg-half video{object-fit:contain}
+.mg-half.has-video>span,.mg-half.has-video>p{display:none}
+.mg-preview-controls{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:12px}
+.mg-title{font-family:var(--mg-title-font,Arial),sans-serif;font-size:var(--mg-title-size,5.4cqw);top:var(--mg-title-top,3.6%)}
+.mg-duo .mg-mark,.mg-duo.mg-vs .mg-mark{display:block;position:absolute;left:0;right:0;top:93.75%;transform:translateY(-50%);text-align:center;font:700 4.3cqw var(--mg-mark-font,Arial),sans-serif;color:#fff;text-shadow:1px 1px 2px #111}
+.mg-duo .mg-mark:empty{display:none}
+
+/* O fundo desfocado da prévia do VS é o par de vídeos desenhado num canvas. */
+.mg-blurbg{position:absolute;inset:0;width:100%;height:100%;filter:blur(2.2cqw) brightness(.82);transform:scale(1.1)}
+.mg-blurbg[hidden]{display:none}
+.mg-duo.mg-vs:has(.mg-blurbg:not([hidden])){background:#000}
