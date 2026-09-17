@@ -301,3 +301,31 @@ def test_comic_palette_and_pop(workdir):
     for change in [{'outline_width':13},{'shadow_depth':-1},{'outline_color':'red'},{'animation_style':'bad'}]:
         with pytest.raises(ValidationError):
             t5.TopFive.model_validate({**payload(),**change})
+
+
+def test_youtube_shorts_links_are_accepted_downloaded_and_probed(client,workdir,monkeypatch):
+    short='https://www.youtube.com/shorts/UzCM2JqW0lY'
+    assert t5.Entry(url=short,name='Shorts').url==short and t5.shorts_id(short)=='UzCM2JqW0lY'
+    for bad in ['https://www.youtube.com/watch?v=UzCM2JqW0lY','https://www.youtube.com/shorts/abc','http://youtube.com/shorts/UzCM2JqW0lY']:
+        with pytest.raises(ValidationError):
+            t5.Entry(url=bad,name='x')
+    monkeypatch.setattr(t5,'shorts_duration',lambda url:31.0)
+    monkeypatch.setattr(t5,'tiktok_duration',lambda url:pytest.fail('TikTok não deve ser consultado'))
+    assert client.post('/api/top5/probe',json={'url':short}).json()=={'duration':31.0,'max_clip':15}
+    calls=[]
+    def youtube(url,folder):
+        calls.append(('youtube',url));folder.mkdir(parents=True,exist_ok=True);path=folder/'yt.mp4';path.write_bytes(b'x');return path,{'duration':31}
+    def tiktok(url,folder):
+        calls.append(('tiktok',url));folder.mkdir(parents=True,exist_ok=True);path=folder/(url[-2:]+'.mp4');path.write_bytes(b'x');return path
+    monkeypatch.setattr(t5,'download',youtube);monkeypatch.setattr(t5,'download_tiktok',tiktok)
+    monkeypatch.setattr(t5,'render_topfive',lambda spec,sources,directory,progress:{'sources':sources})
+    value=payload();value['entries'][1]['url']=short
+    assert client.post('/api/top5',json=value).status_code==202
+    t5.process_topfive({'top5':value},workdir)
+    assert [c[0] for c in calls]==['tiktok','youtube','tiktok','tiktok','tiktok']
+    def long_video(url,folder):
+        folder.mkdir(parents=True,exist_ok=True);path=folder/'long.mp4';path.write_bytes(b'x');return path,{'duration':900}
+    monkeypatch.setattr(t5,'download',long_video)
+    with pytest.raises(t5.DownloadError):
+        t5.download_source(short,workdir/'long')
+    assert not (workdir/'long/long.mp4').exists()

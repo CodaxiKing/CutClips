@@ -71,7 +71,7 @@ def probe_topfive_source(data: ProbeRequest):
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     try:
-        duration = t5.tiktok_duration(url)
+        duration = t5.source_duration(url)
     except DownloadError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"duration": duration, "max_clip": t5.MAX_CLIP}
