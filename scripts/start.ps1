@@ -17,9 +17,13 @@ foreach ($proxyName in @('HTTP_PROXY','HTTPS_PROXY','ALL_PROXY','http_proxy','ht
 }
 $projectPython = Join-Path $projectRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $projectPython)) {
+    $projectPython = Join-Path $projectRoot '.venv-imported\Scripts\python.exe'
+}
+if (-not (Test-Path -LiteralPath $projectPython)) {
     throw 'Crie o ambiente .venv e instale requirements.txt antes de iniciar.'
 }
-$localFFmpeg = Join-Path $projectRoot '.venv\Lib\site-packages\static_ffmpeg\bin\win32'
+$venvRoot = Split-Path -Parent (Split-Path -Parent $projectPython)
+$localFFmpeg = Join-Path $venvRoot 'Lib\site-packages\static_ffmpeg\bin\win32'
 if (Test-Path -LiteralPath (Join-Path $localFFmpeg 'ffmpeg.exe')) {
     $env:PATH = $localFFmpeg + [IO.Path]::PathSeparator + $env:PATH
 }
@@ -27,8 +31,8 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or -not (Get-Comman
     throw 'FFmpeg e FFprobe precisam estar no PATH. Consulte o README.'
 }
 if ($Mode -eq 'api') {
-    & $projectPython -m uvicorn api.main:app --host 127.0.0.1 --port $Port --no-access-log
+    & $projectPython -P (Join-Path $PSScriptRoot 'launch.py') api $Port
 } else {
-    & $projectPython -m api.worker
+    & $projectPython -P (Join-Path $PSScriptRoot 'launch.py') worker
 }
 exit $LASTEXITCODE

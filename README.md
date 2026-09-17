@@ -95,7 +95,21 @@ Acima de `CLIPFORGE_PROSPECT_AFTER_MINUTES` (25 min por padrão) o vídeo passa 
 
 O formato de saída é escolhido por projeto: **16:9 horizontal** para o YouTube, que mantém o quadro inteiro da gameplay sem reenquadrar nada, ou **9:16 vertical** para Shorts, que usa o rastreamento de rosto. O manifesto registra os momentos garimpados, quantos segundos foram analisados e a orientação usada.
 
-### Top 5 de TikTok
+### Descobrir tendências e reunir candidatos
+
+A aba **Descobrir** abre a central oficial de tendências do TikTok e oferece buscas de dança por música, coreografia e país. As tendências são consultadas no site oficial, que pode exigir login; não há importação automática de rankings nem um ranking mundial agregado. O país da busca é acrescentado ao texto pesquisado, sem garantir a localização dos criadores.
+
+Cole links de vídeos, dê nomes para o ranking e organize candidatos por coleção. A lista fica no armazenamento deste navegador (e deste endereço/porta). Selecione de três a cinco candidatos, ajuste a ordem e use **Usar no ranking** para preencher o editor. Um ranking já preenchido pede confirmação antes da substituição. A montagem só começa quando você confirma a geração no editor.
+
+### Montagem Top 5 de TikTok
+
+Em **Áudio e autorização deste trecho**, cada posição permite manter, silenciar ou substituir o áudio, ajustar seu volume e enviar uma narração opcional. A redução automática de fundo atua enquanto a narração toca. Arquivos WAV/MP3/M4A/OGG/FLAC/AAC têm limite de 25 MB: os primeiros 15 segundos são preparados localmente; a montagem corta à duração do trecho ou completa com silêncio. A narração começa no início do trecho. Esses controles não geram voz automaticamente.
+
+O editor consulta o histórico dos projetos existentes por link/ID e avisa sobre repetições antes de gerar. Novas montagens também guardam SHA-256 das fontes para comparar arquivos idênticos na revisão; links curtos distintos, arquivos recodificados e projetos excluídos limitam a comparação.
+
+Os botões **Revisar e baixar** mostram duração, resolução, FPS, presença de áudio, fontes, autorizações declaradas, avisos e histórico antes do download. Autorizações podem ser atualizadas na revisão. Não há consulta ao Content ID nem previsão de alcance ou confirmação automática de licenças.
+
+No resultado, **Acompanhamento após publicar** guarda consultas manuais por data: link do YouTube, restrições, visualizações totais e pelo feed, exibições no feed, porcentagem média assistida e porcentagem que continuou assistindo. São snapshots acumulados: a mesma data atualiza o registro; datas diferentes não são somadas. Campos desconhecidos permanecem vazios. Esses registros são próprios do ranking, separados do painel legado de resultados por versão de clipe.
 
 A aba **Top 5** recebe cinco links públicos de vídeos do TikTok (inclusive `vm.tiktok.com` e `vt.tiktok.com`), uma frase que fica no topo do vídeo inteiro e um nome para cada posição. O resultado é um MP4 vertical 1080×1920 a 30 fps com os cinco trechos em sequência.
 

@@ -168,7 +168,7 @@ def test_clips_are_automatic_up_to_15s_and_never_pass_the_video_end(workdir,monk
     value['entries'][3].update(start=5,duration=15) # pedido passa do fim (12s)
     sources=[workdir/f'v{i}' for i in range(5)]
     for source in sources:source.write_bytes(b'x')
-    monkeypatch.setattr(t5,'probe',lambda p:SimpleNamespace(duration=lengths[int(p.name[1])],has_audio=True))
+    monkeypatch.setattr(t5,'probe',lambda p:SimpleNamespace(duration=lengths[int(p.name[1])],has_audio=True,width=1080,height=1920))
     monkeypatch.setattr(t5,'ffmpeg',lambda *a,**k:None)
     class Captured(Exception):pass
     def capture(spec,timeline,path):raise Captured(timeline)
@@ -231,7 +231,7 @@ def test_edit_one_position_of_failed_ranking(client,workdir):
     job=db.get_job(job_id)
     assert job['status']=='queued' and job['error'] is None
     entries=job['settings']['top5']['entries']
-    assert entries[3]=={**fixed} and entries[0]==payload()['entries'][0]|{'start':0,'duration':None}
+    assert entries[3]==t5.Entry.model_validate(fixed).model_dump() and entries[0]==t5.Entry.model_validate(payload()['entries'][0]).model_dump()
     sources=client.get(f'/api/top5/{job_id}/sources').json()['sources']
     assert len(sources)==5 and not any(s['downloaded'] for s in sources)
 

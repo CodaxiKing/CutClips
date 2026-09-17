@@ -13,6 +13,8 @@
 <meta name="color-scheme" content="dark">
 <link rel="stylesheet" href="/assets/channel.css">
 <link rel="stylesheet" href="/assets/topfive.css">
+<link rel="stylesheet" href="/assets/topfive-tools.css">
+<link rel="stylesheet" href="/assets/discover.css">
 <link rel="stylesheet" href="/assets/montages.css">
 <link rel="stylesheet" href="/assets/theme.css">
 <title>ClipForge</title>
@@ -319,11 +321,12 @@
     <details class="yt-public"><summary>Analisar outro canal pelo link público</summary><p class="yt-muted">A consulta pública é independente do canal conectado e não tem acesso a métricas privadas.</p><form id="channelForm"><input name="url" type="url" placeholder="https://www.youtube.com/@canal" aria-label="Link público do canal" required maxlength="500"><select name="format" aria-label="Formato"><option value="videos">Vídeos</option><option value="shorts">Shorts</option></select><button class="btn btn-outline" type="submit">Consultar</button></form><div id="channelResult" aria-live="polite"></div></details>
     <p class="yt-footnote" id="ytNote">Métricas oficiais, quando disponíveis. Sem estimativas de alcance inventadas ou garantia de recomendações. <a href="https://developers.google.com/youtube/reporting/v1/reports/channel_reports#reach-reports" target="_blank" rel="noopener">Sobre os relatórios de alcance ↗</a></p>
   </section>
+  <section id="discover" hidden></section>
   <section id="topfive" hidden>
     <header class="t5-header"><p class="t5-eyebrow"><span class="page-icon" aria-hidden="true">5</span>RANKING · SHORTS · TIKTOK</p><h1>Seu ranking.<br><span>Do Top 3 ao Top 5.</span></h1><p>Cole os links, dê um nome a cada posição e deixe a montagem com a gente.</p></header>
     <div class="t5-grid"><form id="topfiveForm">
       <div class="t5-panel"><div class="t5-section-title"><span>01</span><div><h2>A frase que abre o ranking</h2><p>Fica no topo durante todo o vídeo.</p></div></div><label for="t5Headline">Frase no topo</label><input id="t5Headline" name="headline" maxlength="80" required placeholder="Top 5 gols mais inesperados" autocomplete="off"></div>
-      <div class="t5-panel"><div class="t5-section-title"><span>02</span><div><h2>As posições do ranking</h2><p>Cada número é uma posição fixa. O nome aparece quando o vídeo começa e permanece na lista.</p></div></div><label>Quantidade de posições<select id="t5Count"><option value="3">Top 3</option><option value="4">Top 4</option><option value="5" selected>Top 5</option></select></label><div id="t5Entries"></div><p class="t5-help">Links públicos de vídeos do TikTok, incluindo vm.tiktok.com e vt.tiktok.com. Escolha início e fim em segundos em cada posição. Ex.: início 5 e fim 12 usa apenas 7 segundos. Deixe o fim vazio para usar o restante. Limites do aplicativo: 10 min por fonte e 15 min no resultado.</p></div>
+      <div class="t5-panel"><div class="t5-section-title"><span>02</span><div><h2>As posições do ranking</h2><p>Cada número é uma posição fixa. O nome aparece quando o vídeo começa e permanece na lista.</p></div></div><label>Quantidade de posições<select id="t5Count"><option value="3">Top 3</option><option value="4">Top 4</option><option value="5" selected>Top 5</option></select></label><p class="t5-pool" id="t5Pool"></p><div id="t5Entries"></div><p class="t5-help">Links públicos de vídeos do TikTok, incluindo vm.tiktok.com e vt.tiktok.com. Escolha início e fim em segundos em cada posição. Ex.: início 5 e fim 12 usa apenas 7 segundos. Deixe o fim vazio para usar o restante. Limites do aplicativo: 10 min por fonte e 15 min no resultado.</p></div>
       <div class="t5-panel"><div class="t5-section-title"><span>03</span><div><h2>Como vamos montar</h2><p>MP4 vertical · 1080 × 1920 · 30 fps · áudio dos vídeos</p></div></div><div class="t5-options"><label>Ordem de reprodução<select id="t5Order" name="order"><option value="ascending">1 → 2 → 3 → 4 → 5</option><option value="countdown">5 → 4 → 3 → 2 → 1</option></select></label><label>Enquadramento<select id="t5Layout" name="layout"><option value="fit">Vídeo inteiro + fundo desfocado</option><option value="crop">Preencher a tela (recorte central)</option></select></label></div><label class="t5-checkbox"><input id="t5Normalize" name="normalize_audio" type="checkbox" checked> Equilibrar o volume entre os vídeos</label><p class="t5-help">A duração final é a soma dos trechos. Confira os limites da plataforma antes de publicar. Use vídeos próprios ou autorizados; a montagem não torna conteúdo reutilizado automaticamente original.</p></div>
       <div class="t5-panel"><div class="t5-section-title"><span>04</span><div><h2>Letras e efeitos</h2><p>Texto direto sobre o vídeo, sem barras de fundo.</p></div></div><div class="t5-options">
 <label class="t5-preset-control">Estilo pronto<select id="t5Preset"><option value="custom">Personalizado</option><option value="comics">Comics · amarelo e contorno preto</option><option value="bubble">Cartoon Pop · rosa e roxo</option><option value="neon">Neon · ciano e violeta</option><option value="marker">Manuscrito · branco e azul</option><option value="arcade">Arcade · verde e preto</option></select><small>Aplica uma combinação; depois ajuste como quiser.</small></label><label>Fonte do título<select id="t5TitleFont"><option value="Arial">Arial</option><option value="Impact" selected>Impact</option><option value="Georgia">Georgia</option><option value="Trebuchet MS">Trebuchet MS</option><option value="Comic Sans MS">Comic Sans MS</option><option value="Segoe Print">Segoe Print</option><option value="Segoe Script">Segoe Script</option><option value="Ink Free">Ink Free</option><option value="Bahnschrift">Bahnschrift</option><option value="Verdana">Verdana</option><option value="Consolas">Consolas</option><option value="Segoe UI">Segoe UI</option></select></label>
@@ -342,7 +345,7 @@
 <label>Altura do ranking<input id="t5RankPosition" type="range" min="30" max="65" value="50"><small>Do alto ao centro inferior, na lateral esquerda</small></label>
 </div><label class="t5-checkbox"><input id="t5Animate" type="checkbox" checked> Animar o nome a cada troca de vídeo</label><label class="t5-checkbox"><input id="t5Intro" type="checkbox" checked> Animar a entrada do título e dos números</label><div class="t5-options"><label>Seu @ no vídeo (opcional)<input id="t5Watermark" maxlength="32" placeholder="@seuperfil" autocomplete="off"></label><label>Opacidade do @<input id="t5WatermarkOpacity" type="range" min="15" max="80" value="40"><small>Discreto, centralizado na parte inferior</small></label></div></div>
       <div class="t5-submit"><button class="btn btn-primary" type="submit" id="t5Create">Montar meu Top 5 <span>→</span></button><span>Sem transcrição ou chamadas de IA</span></div><p id="t5Error" role="alert" class="studio-error"></p>
-    </form><aside class="t5-preview-column"><div class="t5-preview-heading"><span>PRÉVIA DO LAYOUT</span><span>9:16</span></div><div class="t5-phone"><div class="t5-preview-title" id="t5PreviewTitle">Sua frase<br>aparece aqui</div><div class="t5-preview-scene"><span>▶</span><p id="t5PreviewClip">Vídeo da posição 1</p><small>Simulação de texto e posição.<br>Os links não são reproduzidos nesta prévia.</small></div><ol id="t5PreviewRanks"></ol><div id="t5PreviewWatermark" class="t5-watermark"></div></div><button id="t5Replay" class="btn btn-outline t5-replay" type="button">▶ Repetir animações</button><label class="t5-simulator">Simular trecho<select id="t5PreviewStep"><option value="0">Primeiro vídeo</option><option value="1">Segundo vídeo</option><option value="2">Terceiro vídeo</option><option value="3">Quarto vídeo</option><option value="4">Quinto vídeo</option></select></label><p class="t5-help">Todos os números ficam visíveis. A posição atual ganha a cor escolhida; os nomes futuros ficam ocultos.</p></aside></div>
+    </form><aside class="t5-preview-column"><div class="t5-preview-heading"><span>PRÉVIA DO LAYOUT</span><span>9:16</span></div><div class="t5-phone"><canvas class="t5-preview-bg" id="t5PreviewBg" width="90" height="160" aria-hidden="true"></canvas><video class="t5-preview-video" id="t5PreviewVideo" playsinline muted preload="auto" referrerpolicy="no-referrer" aria-hidden="true"></video><div class="t5-preview-title" id="t5PreviewTitle">Sua frase<br>aparece aqui</div><div class="t5-preview-scene"><span>▶</span><p id="t5PreviewClip">Vídeo da posição 1</p><small>Simulação de texto e posição.<br>Escolha vídeos em Descobrir para ver o trecho real aqui.</small></div><ol id="t5PreviewRanks"></ol><div id="t5PreviewWatermark" class="t5-watermark"></div></div><div class="t5-preview-controls"><button id="t5Play" class="btn btn-primary" type="button">▶ Tocar prévia</button><button id="t5Sound" class="btn btn-outline" type="button" aria-pressed="false">🔇 Mudo</button></div><button id="t5Replay" class="btn btn-outline t5-replay" type="button">↺ Repetir animações</button><label class="t5-simulator">Simular trecho<select id="t5PreviewStep"><option value="0">Primeiro vídeo</option><option value="1">Segundo vídeo</option><option value="2">Terceiro vídeo</option><option value="3">Quarto vídeo</option><option value="4">Quinto vídeo</option></select></label><p class="t5-help">Todos os números ficam visíveis. A posição atual ganha a cor escolhida; os nomes futuros ficam ocultos. Com vídeos de Descobrir, a prévia toca cada trecho em sequência, com o enquadramento escolhido.</p></aside></div>
   </section>
   <section id="quiz" class="montage" hidden>
     <header class="t5-header"><p class="t5-eyebrow"><span class="page-icon" aria-hidden="true">?</span>QUIZ · SHORTS · TIKTOK</p><h1>Pergunta, suspense, resposta.<br><span>Um quiz que prende até o fim.</span></h1><p>Gere perguntas com IA, sorteie do banco ou escreva as suas. Resposta aberta ou alternativas A/B/C/D.</p></header>
@@ -1199,14 +1202,15 @@ $("project").addEventListener("click", async e => {
 function route(){
   const m = location.hash.match(/^#\/job\/([\w-]+)/);
   currentId = m ? m[1] : null;
-  $("home").hidden = !!currentId || ['#/channel', '#/top5', '#/quiz', '#/reaction'].includes(location.hash);
+  $("home").hidden = !!currentId || ['#/discover', '#/channel', '#/top5', '#/quiz', '#/reaction'].includes(location.hash);
+  $("discover").hidden = location.hash !== '#/discover';
   $("topfive").hidden = location.hash !== '#/top5';
   $("quiz").hidden = location.hash !== '#/quiz';
   $("reaction").hidden = location.hash !== '#/reaction';
   $("channel").hidden = location.hash !== '#/channel';
   $("project").hidden = !currentId;
   $("dropOverlay").hidden = true;
-  const tab = currentId ? "projects" : ({"#/top5": "top5", "#/quiz": "quiz", "#/reaction": "reaction", "#/channel": "channel"})[location.hash] || "home";
+  const tab = currentId ? "projects" : ({"#/discover": "discover", "#/top5": "top5", "#/quiz": "quiz", "#/reaction": "reaction", "#/channel": "channel"})[location.hash] || "home";
   document.querySelectorAll("[data-nav]").forEach(a => a.dataset.nav === tab ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   if (currentId) {
     $("project").dataset.key = "";
@@ -1253,6 +1257,8 @@ setInterval(refresh, 2000);
 <script src="/assets/studio.js"></script>
 <script src="/assets/channel.js"></script>
 <script src="/assets/topfive.js"></script>
+<script src="/assets/topfive-tools.js"></script>
+<script src="/assets/discover.js"></script>
 <script src="/assets/montages.js"></script>
 </body>
 </html>

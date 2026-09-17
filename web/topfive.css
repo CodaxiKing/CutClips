@@ -75,3 +75,22 @@
 .t5-fix-tech summary{cursor:pointer}
 .t5-fix-tech .err-box{margin:10px 0 0}
 @media(max-width:480px){.t5-fix-row{gap:10px}.t5-fix .t5-trim{grid-template-columns:1fr}}
+/* Prévia com o vídeo real (vídeos vindos de Descobrir) e troca por outro do mesmo tópico. */
+.t5-preview-video,.t5-preview-bg{position:absolute;inset:0;width:100%;height:100%;display:none}
+.t5-preview-video{object-fit:contain;background:transparent}
+.t5-preview-bg{filter:blur(6px) brightness(.85);transform:scale(1.12)}
+.t5-phone[data-video=true] .t5-preview-video{display:block}
+.t5-phone[data-video=true][data-layout=fit] .t5-preview-bg{display:block}
+.t5-phone[data-layout=crop] .t5-preview-video{object-fit:cover}
+.t5-phone[data-video=true] .t5-preview-scene{display:none}
+.t5-preview-controls{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:12px}
+.t5-preview-controls .btn{justify-content:center}
+.t5-pool{margin:14px 0 0;font-size:12px;color:#adadb7;line-height:1.7}
+.t5-pool a{color:#efd080}
+.t5-source{display:flex;align-items:center;gap:12px;margin-top:12px;padding:8px 10px;border:1px solid #ffffff12;border-radius:10px;background:#16161a}
+.t5-source[hidden]{display:none}
+.t5-source img{width:34px;height:60px;object-fit:cover;border-radius:6px;flex-shrink:0;background:#222}
+.t5-source div{flex:1;min-width:0}
+.t5-source strong{display:block;font-size:13px;color:#efd080;font-variant-numeric:tabular-nums}
+.t5-source small{display:block;font-size:11px;color:#8d8d98;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t5-source .btn{flex-shrink:0}

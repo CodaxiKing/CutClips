@@ -17,6 +17,13 @@ class ProbeRequest(BaseModel):
 
 @router.post("", status_code=202)
 def create_topfive(data: TopFive):
+    for entry in data.entries:
+        for asset in (entry.audio_asset if entry.audio_mode == 'replace' else None, entry.narration_asset):
+            if asset:
+                try:
+                    t5.audio_path(asset)
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc))
     job_id = db.create_job("top5", title=data.headline, settings={"kind":"top5", "top5":data.model_dump()})
     return {"job_id":job_id,"status":"queued"}
 
@@ -45,7 +52,7 @@ def update_topfive_entry(job_id: str, index: int, entry: Entry):
     top5 = dict(job["settings"]["top5"])
     if not 0 <= index < len(top5["entries"]):
         raise HTTPException(404, "posição não encontrada")
-    top5["entries"] = [entry.model_dump() if i == index else e for i, e in enumerate(top5["entries"])]
+    top5["entries"] = [{**e, **entry.model_dump(exclude_unset=True)} if i == index else e for i, e in enumerate(top5["entries"])]
     try:
         spec = t5.load_spec(top5)
     except ValidationError as exc:
