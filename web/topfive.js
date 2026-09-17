@@ -62,9 +62,114 @@
     f.end.addEventListener('change',()=>{t.manualEnd=f.end.value!=='';t.limits();});
     return t;
   }
-  el('t5Entries').innerHTML=Array.from({length:5},(_,i)=>`<fieldset class="t5-entry"><legend>Posição ${i+1}</legend><span class="t5-number" aria-hidden="true">${i+1}</span><div class="t5-entry-fields"><label for="t5Url${i}">Link do TikTok<input id="t5Url${i}" type="url" required maxlength="600" placeholder="https://www.tiktok.com/@perfil/video/…"></label><label for="t5Name${i}">Nome ao lado do número<input id="t5Name${i}" required maxlength="32" placeholder="Ex.: O gol impossível"></label><div class="t5-trim-heading">✂ Trecho automático · até ${MAX_CLIP}s, ajuste se quiser</div><div class="t5-trim"><label>Início (segundos)<input id="t5Start${i}" type="number" min="0" max="600" step="0.01" value="0"></label><label>Fim (segundos)<input id="t5End${i}" type="number" min="0.5" max="${MAX_CLIP}" step="0.01" placeholder="Automático"></label></div><p class="t5-trim-summary" id="t5TrimSummary${i}"></p></div></fieldset>`).join('');
+  el('t5Entries').innerHTML=Array.from({length:5},(_,i)=>`<fieldset class="t5-entry"><legend>Posição ${i+1}</legend><span class="t5-number" aria-hidden="true">${i+1}</span><div class="t5-entry-fields"><label for="t5Url${i}">Link do TikTok<input id="t5Url${i}" type="url" required maxlength="600" placeholder="https://www.tiktok.com/@perfil/video/…"></label><label for="t5Name${i}">Nome ao lado do número<input id="t5Name${i}" required maxlength="32" placeholder="Ex.: O gol impossível"></label><div class="t5-trim-heading">✂ Trecho automático · até ${MAX_CLIP}s, ajuste se quiser</div><div class="t5-trim"><label>Início (segundos)<input id="t5Start${i}" type="number" min="0" max="600" step="0.01" value="0"></label><label>Fim (segundos)<input id="t5End${i}" type="number" min="0.5" max="${MAX_CLIP}" step="0.01" placeholder="Automático"></label></div><p class="t5-trim-summary" id="t5TrimSummary${i}"></p><div class="t5-source" id="t5Source${i}" hidden></div></div></fieldset>`).join('');
   const trims=Array.from({length:5},(_,i)=>trimmer({url:el('t5Url'+i),start:el('t5Start'+i),end:el('t5End'+i)},()=>preview()));
-  function data(){return {headline:el('t5Headline').value.trim(),order:el('t5Order').value,layout:el('t5Layout').value,normalize_audio:el('t5Normalize').checked,title_font:el('t5TitleFont').value,rank_font:el('t5RankFont').value,text_effect:el('t5Effect').value,accent_color:el('t5Accent').value,title_color:el('t5TitleColor').value,rank_color:el('t5RankColor').value,outline_color:el('t5OutlineColor').value,outline_width:Number(el('t5OutlineWidth').value),shadow_color:el('t5ShadowColor').value,shadow_depth:Number(el('t5ShadowDepth').value),animation_style:el('t5AnimationStyle').value,title_size:Number(el('t5TitleSize').value),rank_size:Number(el('t5RankSize').value),rank_position:Number(el('t5RankPosition').value),animate_reveal:el('t5Animate').checked,animate_intro:el('t5Intro').checked,watermark:el('t5Watermark').value.trim(),watermark_opacity:Number(el('t5WatermarkOpacity').value),entries:Array.from({length:Number(el('t5Count').value)},(_,i)=>({url:el('t5Url'+i).value.trim(),name:el('t5Name'+i).value.trim(),start:Number(el('t5Start'+i).value||0),duration:el('t5End'+i).value===''?null:round2(Number(el('t5End'+i).value)-Number(el('t5Start'+i).value||0))}))};}
+  // Vídeos escolhidos em Descobrir trazem um MP4 tocável: a prévia mostra o trecho real e
+  // cada posição pode ser trocada pelo próximo vídeo mais visto do mesmo tópico.
+  let media=Array(5).fill(null),pool=null;
+  const compact=n=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(n||0);
+  function rankName(v){
+    const text=String(v.title||'').replace(/https?:\/\/\S+/g,'').replace(/[#@][\p{L}\p{M}\p{N}_.]+/gu,'').replace(/[^\p{L}\p{M}\p{N}\p{P}\p{Zs}]/gu,'').replace(/\s+/g,' ').trim();
+    if(text.replace(/\p{P}/gu,'').trim().length<3)return ('@'+v.author).slice(0,32);
+    if(text.length<=32)return text;
+    const cut=text.slice(0,31),space=cut.lastIndexOf(' ');
+    return (space>15?cut.slice(0,space):cut).replace(/[\s,.;:!?-]+$/,'')+'…';
+  }
+  function showSource(i){
+    const box=el('t5Source'+i),m=media[i];
+    box.hidden=!m&&!pool;
+    box.innerHTML=box.hidden?'':`${m?`<img src="${esc(m.cover)}" alt="" referrerpolicy="no-referrer"><div><strong>${compact(m.views)} visualizações</strong><small>@${esc(m.author)} · ${esc(pool?.name||'Descobrir')}</small></div>`:'<div><small>Link colado à mão · a prévia mostra só o texto</small></div>'}${pool?`<button type="button" class="btn btn-outline btn-sm" data-t5-swap="${i}" title="Substituir pelo próximo vídeo mais visto de ${esc(pool.name)}">↻ Trocar vídeo</button>`:''}`;
+  }
+  function showPool(){
+    el('t5Pool').innerHTML=pool?`Vídeos de <strong>${esc(pool.name)}</strong> · ${pool.videos.length} disponíveis. Use <b>↻ Trocar vídeo</b> para substituir uma posição. <a href="#/discover">Escolher outro tópico</a>`
+      :'<a href="#/discover">Sem vídeos ainda? Preencha com os mais vistos de um tópico →</a>';
+    for(let i=0;i<5;i++)showSource(i);
+  }
+  // A duração vem do próprio MP4 da prévia, sem consultar o TikTok pelo servidor.
+  function measure(i){
+    const m=media[i],url=el('t5Url'+i).value.trim(),trim=trims[i];
+    if(!m)return trim.probe();
+    trim.probed=url;trim.length=null;trim.loading=true;trim.error='';trim.limits();preview();
+    const probe=document.createElement('video');probe.preload='metadata';probe.muted=true;
+    probe.onloadedmetadata=()=>{if(media[i]===m&&Number.isFinite(probe.duration)&&probe.duration>0)trim.known(url,probe.duration);probe.onerror=null;probe.removeAttribute('src');probe.load();};
+    probe.onerror=()=>{if(media[i]===m){trim.probed=undefined;trim.probe();}};
+    probe.src=m.preview;
+  }
+  function assign(i,v){
+    el('t5Url'+i).value=v.url;el('t5Name'+i).value=rankName(v);el('t5Start'+i).value=0;el('t5End'+i).value='';
+    trims[i].manualEnd=false;media[i]=v;showSource(i);measure(i);
+    el('t5Url'+i).dispatchEvent(new Event('change'));
+  }
+  function swap(i){
+    if(!pool)return;
+    const count=Number(el('t5Count').value),current=el('t5Url'+i).value.trim();
+    const inUse=new Set(Array.from({length:count},(_,n)=>el('t5Url'+n).value.trim()));
+    const pick=()=>pool.videos.find(v=>!inUse.has(v.url)&&!pool.skipped.has(v.url));
+    pool.skipped.add(current);
+    let next=pick();
+    // Todos os outros já passaram por aqui: recomeça a fila, sem repetir o que está no ranking.
+    if(!next){pool.skipped=new Set([current]);next=pick();}
+    if(!next){window.toast?.(`Não há outro vídeo de ${pool.name} fora do ranking.`);return;}
+    assign(i,next);
+    const order=Array.from({length:count},(_,n)=>n+1);if(el('t5Order').value==='countdown')order.reverse();
+    el('t5PreviewStep').value=order.indexOf(i+1);player.key='';player.finished=false;preview(true);
+  }
+  for(let i=0;i<5;i++)el('t5Url'+i).addEventListener('input',()=>{if(media[i]&&el('t5Url'+i).value.trim()!==media[i].url){media[i]=null;showSource(i);}});
+  el('t5Entries').addEventListener('click',event=>{const button=event.target.closest('[data-t5-swap]');if(button)swap(Number(button.dataset.t5Swap));});
+  const player={video:el('t5PreviewVideo'),bg:el('t5PreviewBg'),playing:false,finished:false,key:'',end:0,timer:0,frame:0,token:0};
+  function drawBackground(){
+    const {video,bg}=player,vw=video.videoWidth,vh=video.videoHeight;
+    if(video.readyState<2||!vw||!vh)return;
+    const scale=Math.max(bg.width/vw,bg.height/vh);
+    bg.getContext('2d').drawImage(video,(bg.width-vw*scale)/2,(bg.height-vh*scale)/2,vw*scale,vh*scale);
+  }
+  function drawLoop(){cancelAnimationFrame(player.frame);drawBackground();if(!player.video.paused)player.frame=requestAnimationFrame(drawLoop);}
+  function stopPlayer(finished=false){
+    player.playing=false;player.finished=finished;clearTimeout(player.timer);player.video.pause();
+    el('t5Play').textContent=finished?'▶ Tocar de novo':'▶ Tocar prévia';
+  }
+  function advance(){
+    const count=Number(el('t5Count').value),step=Number(el('t5PreviewStep').value)||0;
+    if(step+1>=count)return stopPlayer(true);
+    el('t5PreviewStep').value=step+1;preview(true);
+  }
+  // Mantém o vídeo da prévia no trecho do passo simulado; só recarrega quando o vídeo ou o início mudam.
+  function syncVideo(spec,rank){
+    const i=rank-1,m=media[i],entry=spec.entries[i]||{},start=entry.start||0,phone=document.querySelector('.t5-phone');
+    phone.dataset.video=String(!!m);phone.dataset.layout=spec.layout;
+    player.end=start+(entry.duration??MAX_CLIP);
+    const key=m?`${m.preview}|${start}`:`none|${i}`;
+    if(key===player.key)return;
+    player.key=key;clearTimeout(player.timer);const token=++player.token,{video}=player;
+    if(!m){
+      video.pause();video.removeAttribute('src');video.removeAttribute('poster');video.load();
+      if(player.playing)player.timer=setTimeout(advance,Math.min(entry.duration??3,4)*1000);
+      return;
+    }
+    if(video.getAttribute('src')!==m.preview){video.poster=m.cover;video.src=m.preview;}
+    const seek=()=>{
+      if(token!==player.token)return;
+      video.currentTime=Math.min(start,Math.max(0,(video.duration||start)-.1));
+      if(player.playing)video.play().catch(()=>stopPlayer());
+    };
+    if(video.readyState>=1)seek();else video.addEventListener('loadedmetadata',seek,{once:true});
+  }
+  player.video.addEventListener('seeked',drawBackground);player.video.addEventListener('loadeddata',drawBackground);player.video.addEventListener('play',drawLoop);
+  player.video.addEventListener('timeupdate',()=>{if(player.playing&&player.video.currentTime>=player.end-.04)advance();});
+  player.video.addEventListener('ended',()=>{if(player.playing)advance();});
+  player.video.addEventListener('error',()=>{if(player.video.getAttribute('src')&&player.playing)player.timer=setTimeout(advance,1500);});
+  el('t5Play').onclick=()=>{
+    if(player.playing)return stopPlayer();
+    const {video}=player,resume=video.getAttribute('src')&&video.currentTime<player.end-.1&&!player.finished&&document.querySelector('.t5-phone').dataset.video==='true';
+    player.playing=true;el('t5Play').textContent='❚❚ Pausar';
+    if(player.finished)el('t5PreviewStep').value=0;
+    player.finished=false;
+    if(resume){video.play().catch(()=>stopPlayer());return;}
+    player.key='';preview(true);
+  };
+  el('t5Sound').onclick=()=>{const on=player.video.muted;player.video.muted=!on;el('t5Sound').setAttribute('aria-pressed',String(on));el('t5Sound').textContent=on?'🔊 Som':'🔇 Mudo';};
+  window.addEventListener('hashchange',()=>{if(location.hash!=='#/top5'&&player.playing)stopPlayer();});
+  function data(){return {headline:el('t5Headline').value.trim(),order:el('t5Order').value,layout:el('t5Layout').value,normalize_audio:el('t5Normalize').checked,title_font:el('t5TitleFont').value,rank_font:el('t5RankFont').value,text_effect:el('t5Effect').value,accent_color:el('t5Accent').value,title_color:el('t5TitleColor').value,rank_color:el('t5RankColor').value,outline_color:el('t5OutlineColor').value,outline_width:Number(el('t5OutlineWidth').value),shadow_color:el('t5ShadowColor').value,shadow_depth:Number(el('t5ShadowDepth').value),animation_style:el('t5AnimationStyle').value,title_size:Number(el('t5TitleSize').value),rank_size:Number(el('t5RankSize').value),rank_position:Number(el('t5RankPosition').value),animate_reveal:el('t5Animate').checked,animate_intro:el('t5Intro').checked,watermark:el('t5Watermark').value.trim(),watermark_opacity:Number(el('t5WatermarkOpacity').value),entries:Array.from({length:Number(el('t5Count').value)},(_,i)=>({...window.TopFiveTools?.entry(i),url:el('t5Url'+i).value.trim(),name:el('t5Name'+i).value.trim(),start:Number(el('t5Start'+i).value||0),duration:el('t5End'+i).value===''?null:round2(Number(el('t5End'+i).value)-Number(el('t5Start'+i).value||0))}))};}
   function preview(replay=false){
     const spec=data(),count=spec.entries.length;
     el('t5Watermark').setCustomValidity(!spec.watermark||/^@?[\p{L}\p{N}_.-]{1,31}$/u.test(spec.watermark)?'':'Use até 31 letras, números, pontos, hífens ou sublinhados, sem espaços.');
@@ -88,14 +193,17 @@
     el('t5PreviewTitle').textContent=spec.headline||'Sua frase aparece aqui';
     el('t5PreviewClip').textContent=`Vídeo da posição ${rank}`;
     el('t5PreviewRanks').innerHTML=spec.entries.map((item,i)=>`<li class="${i+1===rank?'active':seen.includes(i+1)?'revealed':'future'}"><b style="--t5-delay:${i*45}ms">${i+1}.</b><span>${seen.includes(i+1)?esc(item.name||`Nome do vídeo ${i+1}`):''}</span></li>`).join('');
+    syncVideo(spec,rank);
   }
-  function fill(spec){
+  function fill(spec,sources=[]){
+    window.TopFiveTools?.fill(spec.entries||[]);
+    media=Array.from({length:5},(_,i)=>sources[i]||null);player.key='';
     el('t5Preset').value='custom';
     el('t5Count').value=Math.max(3,Math.min(5,spec.entries?.length||5));
     const controls={t5RankColor:spec.rank_color||'#ffffff',t5OutlineColor:spec.outline_color||'#101010',t5OutlineWidth:spec.outline_width??5,t5ShadowColor:spec.shadow_color||'#000000',t5ShadowDepth:spec.shadow_depth??2,t5AnimationStyle:spec.animation_style||'slide',t5TitleFont:spec.title_font||'Impact',t5RankFont:spec.rank_font||'Arial',t5Effect:spec.text_effect||'outline',t5Accent:spec.accent_color||'#ffdd45',t5TitleColor:spec.title_color||'#ffffff',t5TitleSize:spec.title_size||72,t5RankSize:spec.rank_size||54,t5RankPosition:spec.rank_position||50,t5Watermark:spec.watermark||'',t5WatermarkOpacity:spec.watermark_opacity??40};
     Object.entries(controls).forEach(([id,value])=>el(id).value=value);el('t5Animate').checked=spec.animate_reveal!==false;el('t5Intro').checked=spec.animate_intro!==false;
     el('t5Headline').value=spec.headline||'';el('t5Order').value=spec.order||'ascending';el('t5Layout').value=spec.layout||'fit';el('t5Normalize').checked=spec.normalize_audio!==false;
-    spec.entries?.slice(0,5).forEach((e,i)=>{el('t5Url'+i).value=e.url||'';el('t5Name'+i).value=e.name||'';el('t5Start'+i).value=e.start||0;el('t5End'+i).value=e.duration==null?'':Number(((e.start||0)+e.duration).toFixed(2));const trim=trims[i];trim.manualEnd=e.duration!=null;trim.probed=undefined;trim.limits();trim.probe();});preview();
+    spec.entries?.slice(0,5).forEach((e,i)=>{el('t5Url'+i).value=e.url||'';el('t5Name'+i).value=e.name||'';el('t5Start'+i).value=e.start||0;el('t5End'+i).value=e.duration==null?'':Number(((e.start||0)+e.duration).toFixed(2));const trim=trims[i];trim.manualEnd=e.duration!=null;trim.probed=undefined;trim.limits();if(media[i])measure(i);else trim.probe();});showPool();preview();
   }
   const presets={
     comics:{title:'Comic Sans MS',rank:'Comic Sans MS',titleColor:'#ffe84a',rankColor:'#ffffff',accent:'#ff7657',outline:'#171126',width:8,shadow:'#000000',depth:4,effect:'outline',motion:'pop'},
@@ -105,10 +213,11 @@
     arcade:{title:'Consolas',rank:'Consolas',titleColor:'#a7ff5b',rankColor:'#ffffff',accent:'#ffdd45',outline:'#132818',width:6,shadow:'#000000',depth:5,effect:'shadow',motion:'pop'}
   };
   el('t5Preset').onchange=()=>{const p=presets[el('t5Preset').value];if(!p)return;const values={t5TitleFont:p.title,t5RankFont:p.rank,t5TitleColor:p.titleColor,t5RankColor:p.rankColor,t5Accent:p.accent,t5OutlineColor:p.outline,t5OutlineWidth:p.width,t5ShadowColor:p.shadow,t5ShadowDepth:p.depth,t5Effect:p.effect,t5AnimationStyle:p.motion};Object.entries(values).forEach(([id,value])=>el(id).value=value);el('t5Intro').checked=true;el('t5Animate').checked=true;preview(true);};
-  el('topfiveForm').addEventListener('input',event=>{if(event.target.id!=='t5Preset')el('t5Preset').value='custom';preview();});el('topfiveForm').addEventListener('change',preview);el('t5PreviewStep').onchange=()=>preview(true);el('t5Replay').onclick=()=>preview(true);preview(true);
+  el('topfiveForm').addEventListener('input',event=>{if(event.target.id!=='t5Preset')el('t5Preset').value='custom';preview();});el('topfiveForm').addEventListener('change',preview);el('t5PreviewStep').onchange=()=>{player.finished=false;preview(true);};el('t5Count').addEventListener('change',showPool);showPool();el('t5Replay').onclick=()=>preview(true);preview(true);
   el('topfiveForm').onsubmit=async event=>{
     event.preventDefault();el('t5Create').disabled=true;el('t5Error').textContent='';
     try{
+      if(window.TopFiveTools && !await window.TopFiveTools.beforeGenerate(data()))return;
       const response=await fetch('/api/top5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data())});const result=await response.json();
       if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:(result.detail||[]).map(x=>`${x.loc?.[1]==='entries'?`Vídeo ${Number(x.loc[2])+1}: `:''}${x.msg}`).join('\n')||'Não foi possível criar o ranking');
       location.hash='#/job/'+result.job_id;window.refresh?.();
@@ -191,7 +300,24 @@
       });
     }).catch(()=>{}).finally(()=>{if(box.dataset.key===key)failed.forEach(i=>forms[i]?.toggle(true));});
   }
-  window.TopFive={renderError,renderProject(job,box,back){
+  window.TopFive={importCandidates(entries,headline){
+    if(!Array.isArray(entries)||entries.length<3||entries.length>5)throw new Error('Selecione de 3 a 5 vídeos.');
+    const current=data();
+    if(current.entries.some(e=>e.url||e.name)&&!confirm('Substituir os vídeos e o título do ranking em edição pelos candidatos selecionados?'))return false;
+    pool=null;fill({...current,headline,entries:entries.map(e=>({url:e.url,name:e.name,start:0,duration:null}))});
+    location.hash='#/top5';return true;
+  },importTopic(topic,count){
+    const videos=(topic?.videos||[]).filter(v=>v&&v.url&&v.preview);
+    if(!(count>=3&&count<=5))throw new Error('Escolha Top 3, 4 ou 5.');
+    if(videos.length<count)throw new Error(`Com esses filtros o tópico tem só ${videos.length} vídeo(s).`);
+    const current=data();
+    if(current.entries.some(e=>e.url||e.name)&&!confirm('Substituir os vídeos e o título do ranking em edição pelos mais vistos deste tópico?'))return false;
+    stopPlayer();pool={name:topic.name,videos,skipped:new Set()};
+    const label=String(topic.name||'').split(' · ')[0].replace(/[“”]/g,''),headline=(topic.id?`Top ${count} ${label}`:`Top ${count} mais vistos do TikTok`).toUpperCase().slice(0,80);
+    el('t5PreviewStep').value=0;
+    fill({...current,headline,entries:videos.slice(0,count).map(v=>({url:v.url,name:rankName(v),start:0,duration:null}))},videos.slice(0,count));
+    location.hash='#/top5';window.scrollTo({top:0});return true;
+  },rankName,renderError,renderProject(job,box,back){
     if(job.status!=='done'){
       const pct=Math.round((job.progress||0)*100);
       box.innerHTML=`${back}<div class="state-card"><p class="t5-eyebrow">MONTAGEM DE RANKING</p><h1>${esc(job.title)}</h1><p class="state-sub">${job.status==='queued'?'Na fila. A montagem começa assim que o worker estiver livre.':esc(job.stage)}</p><div class="big-progress"><i style="width:${pct}%"></i></div><p>${pct}% · Download → sequência → título e ranking</p><p class="note">O processamento continua mesmo se você fechar esta página.</p></div>`;
@@ -200,6 +326,7 @@
     const key=job.id+':top5:done:'+job.finished_at;if(box.dataset.key===key)return;box.dataset.key=key;
     const clip=job.manifest.clips[0],url=`/api/jobs/${job.id}/clips/${encodeURIComponent(clip.file)}`;
     box.innerHTML=`${back}<header class="t5-result-header"><div><p class="t5-eyebrow">RANKING PRONTO</p><h1>${esc(job.title)}</h1><p class="t5-help">1080 × 1920 · ${Number(clip.actual_duration).toFixed(1)} segundos · ${job.manifest.timeline.length} vídeos em sequência</p></div><div class="t5-result-actions"><a href="${url}" download class="btn btn-primary">Baixar MP4</a><a href="/api/jobs/${job.id}/download" class="btn btn-outline">Pacote + créditos</a><button class="btn btn-outline" id="t5Reuse">Editar e criar versão</button><button class="btn btn-outline" data-delete-project>Excluir</button></div></header><div class="t5-result-grid"><video src="${url}" poster="/api/jobs/${job.id}/clips/${encodeURIComponent(clip.thumbnail)}" controls playsinline preload="metadata"></video><div class="t5-panel"><h2>Sua sequência</h2><p class="t5-help">O nome é revelado no início de cada trecho e permanece no ranking.</p>${job.manifest.timeline.map(s=>`<div class="t5-timeline-row"><b>${s.rank}</b><div><strong>${esc(s.name)}</strong><p>${s.start.toFixed(1)}s → ${s.end.toFixed(1)}s · <a href="${esc(s.url)}" target="_blank" rel="noopener">TikTok original ↗</a></p></div></div>`).join('')}<p class="t5-help">Para alterar links, nomes ou a frase, use a configuração e gere uma nova versão como outro projeto.</p></div></div>`;
-    el('t5Reuse').onclick=()=>{fill(job.settings.top5);el('t5Error').textContent='';location.hash='#/top5';};
+    window.TopFiveTools?.mount(job,box);
+    el('t5Reuse').onclick=()=>{pool=null;fill(job.settings.top5);el('t5Error').textContent='';location.hash='#/top5';};
   }};
 })();

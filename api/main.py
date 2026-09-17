@@ -49,6 +49,10 @@ from api.youtube import router as youtube_router
 app.include_router(youtube_router)
 from api.topfive import router as topfive_router
 app.include_router(topfive_router)
+from api.topfive_tools import router as topfive_tools_router
+app.include_router(topfive_tools_router)
+from api.trending import router as trending_router
+app.include_router(trending_router)
 from api.montages import router as montages_router
 app.include_router(montages_router)
 
@@ -87,7 +91,7 @@ def index() -> str:
 @app.get("/assets/{filename}")
 def asset(filename: str):
     if filename not in {"studio.js", "studio.css", "channel.js", "channel.css", "topfive.js", "topfive.css",
-                        "montages.js", "montages.css", "theme.css"}:
+                        "montages.js", "montages.css", "theme.css", "discover.js", "discover.css", "topfive-tools.js", "topfive-tools.css"}:
         raise HTTPException(404)
     return FileResponse(WEB / filename)
 

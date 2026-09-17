@@ -6,6 +6,9 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $startScript = Join-Path $PSScriptRoot 'start.ps1'
 $projectPython = Join-Path $projectRoot '.venv\Scripts\python.exe'
+if (-not (Test-Path -LiteralPath $projectPython)) {
+    $projectPython = Join-Path $projectRoot '.venv-imported\Scripts\python.exe'
+}
 
 if (-not (Test-Path -LiteralPath $projectPython)) {
     throw 'Ambiente .venv ausente. Consulte a seção "Rodar no Windows" do README.'

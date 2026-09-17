@@ -22,6 +22,10 @@ from clipforge.config import STORAGE
 DB_PATH = Path(STORAGE) / "clipforge.db"
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS topfive_reports (
+    job_id TEXT NOT NULL, date TEXT NOT NULL, data TEXT NOT NULL,
+    PRIMARY KEY(job_id,date)
+);
 CREATE TABLE IF NOT EXISTS jobs (
     id          TEXT PRIMARY KEY,
     title       TEXT NOT NULL DEFAULT '',
@@ -332,7 +336,7 @@ def delete_job(job_id: str) -> bool:
         active = c.execute("SELECT 1 FROM edits WHERE job_id=? AND status IN ('queued','running')", (job_id,)).fetchone()
         if row and (row["status"] in ("running", "uploading") or active):
             raise ValueError("aguarde o processamento terminar antes de excluir")
-        for table in ("edits", "publication", "metrics", "clip_versions", "pipeline_stages"):
+        for table in ("edits", "publication", "metrics", "clip_versions", "pipeline_stages", "topfive_reports"):
             c.execute(f"DELETE FROM {table} WHERE job_id=?", (job_id,))
         return c.execute("DELETE FROM jobs WHERE id=?", (job_id,)).rowcount > 0
 

@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+import hashlib
 from .captions import _ts
 from .config import Config
 from .download import DownloadError
@@ -24,12 +25,41 @@ from .probe import probe
 MAX_CLIP = 15.0
 
 
+def file_digest(path):
+    with open(path, 'rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def audio_path(asset):
+    from .config import STORAGE
+    if not asset or not re.fullmatch(r'[a-f0-9]{64}', asset):
+        raise ValueError('Identificador de áudio inválido')
+    path = Path(STORAGE) / 'top5-audio' / (asset + '.wav')
+    if not path.is_file():
+        raise ValueError('Áudio não encontrado. Envie o arquivo novamente.')
+    return path
+
+
 class Entry(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     url: str = Field(min_length=1, max_length=600)
     name: str = Field(min_length=1, max_length=32)
     start: float = Field(default=0, ge=0, le=600, allow_inf_nan=False)
     duration: float | None = Field(default=None, ge=0.5, le=MAX_CLIP, allow_inf_nan=False)
+    audio_mode: Literal['original', 'mute', 'replace'] = 'original'
+    audio_asset: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    narration_asset: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    audio_volume: float = Field(default=1, ge=0, le=2, allow_inf_nan=False)
+    narration_volume: float = Field(default=1, ge=0, le=2, allow_inf_nan=False)
+    ducking: bool = True
+    rights: Literal['unknown', 'own', 'authorized', 'unlicensed'] = 'unknown'
+    rights_notes: str = Field(default='', max_length=500)
+
+    @model_validator(mode='after')
+    def replacement_required(self):
+        if self.audio_mode == 'replace' and not self.audio_asset:
+            raise ValueError('Envie o áudio substituto para este trecho')
+        return self
 
     @field_validator("url")
     @classmethod
@@ -208,25 +238,31 @@ def render_topfive(spec: TopFive, sources: list[Path], directory: Path, progress
         frames = max(1, math.floor(duration*30 + 1e-6))
         duration = frames/30
         timeline.append({"rank":index+1,"name":entry.name,"url":entry.url,"source_start":entry.start,
-                         "start":clock,"end":clock+duration,"duration":duration,"frames":frames})
+                         "start":clock,"end":clock+duration,"duration":duration,"frames":frames,
+                         "source_sha256":file_digest(sources[index]),"source_has_audio":info.has_audio,
+                         "source_width":info.width,"source_height":info.height})
         clock += duration
     if clock > 900:
         raise ValueError("O ranking excede o limite de 15 minutos do aplicativo. Reduza a duração dos trechos.")
     for n, segment in enumerate(timeline):
         index = segment["rank"]-1
+        entry = spec.entries[index]
         duration = segment["duration"]
         progress(f"preparando vídeo {segment['rank']} · {n+1}/{count}", .30+n*.45/count)
         # Numa nova tentativa, só recodifica o trecho cujo vídeo ou corte mudou.
         stat = sources[index].stat()
         key = {"source": str(sources[index].resolve()), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns,
                "start": segment["source_start"], "frames": segment["frames"], "layout": spec.layout,
-               "normalize": spec.normalize_audio, "canvas": [width, height]}
+               "normalize": spec.normalize_audio, "canvas": [width, height],
+               "audio":entry.model_dump(include={'audio_mode','audio_asset','narration_asset','audio_volume','narration_volume','ducking'})}
         part, part_key = work/f"part-{n}.mov", work/f"part-{n}.json"
         if part.is_file() and part_key.is_file() and json.loads(part_key.read_text(encoding="utf-8")) == key:
             continue
         part_key.unlink(missing_ok=True)
         inputs = ["-ss", str(segment["source_start"]), "-i", str(sources[index].resolve())]
-        if not infos[index].has_audio:
+        if entry.audio_mode == 'replace':
+            inputs += ['-i', str(audio_path(entry.audio_asset))]
+        elif entry.audio_mode == 'mute' or not infos[index].has_audio:
             inputs += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000"]
         if spec.layout == "fit":
             video = (f"[0:v]setpts=PTS-STARTPTS,split=2[bg][fg];[bg]scale={width}:{height}:force_original_aspect_ratio=increase,"
@@ -235,9 +271,19 @@ def render_topfive(spec: TopFive, sources: list[Path], directory: Path, progress
         else:
             video = f"[0:v]setpts=PTS-STARTPTS,scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}"
         video += f",setsar=1,fps=30,tpad=stop_mode=clone:stop_duration=1,trim=duration={duration},format=yuv420p[v]"
-        audio_input = "0:a" if infos[index].has_audio else "1:a"
-        loudness = ",loudnorm=I=-16:TP=-1.5:LRA=11" if spec.normalize_audio and infos[index].has_audio else ""
-        graph = video+f";[{audio_input}]asetpts=PTS-STARTPTS{loudness},aresample=48000:async=1:first_pts=0,apad,atrim=duration={duration}[a]"
+        audio_input = '0:a' if entry.audio_mode == 'original' and infos[index].has_audio else '1:a'
+        loudness = ",loudnorm=I=-16:TP=-1.5:LRA=11" if spec.normalize_audio and entry.audio_mode != 'mute' else ""
+        graph = video+f";[{audio_input}]asetpts=PTS-STARTPTS{loudness},aresample=48000:async=1:first_pts=0,aformat=channel_layouts=stereo,volume={entry.audio_volume},apad,atrim=duration={duration}[bed]"
+        if entry.narration_asset:
+            narration_index = 1 if audio_input == '0:a' else 2
+            inputs += ['-i', str(audio_path(entry.narration_asset))]
+            graph += f';[{narration_index}:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo,volume={entry.narration_volume},apad,atrim=duration={duration}[voice]'
+            if entry.ducking:
+                graph += ';[voice]asplit=2[side][speech];[bed][side]sidechaincompress=threshold=0.025:ratio=8:attack=15:release=250[ducked];[ducked][speech]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.95:latency=1[a]'
+            else:
+                graph += ';[bed][voice]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.95:latency=1[a]'
+        else:
+            graph += ';[bed]alimiter=limit=0.95:latency=1[a]'
         # PCM inside MOV avoids AAC priming gaps at the joins. Only final audio is AAC.
         ffmpeg([*inputs,"-filter_complex",graph,"-map","[v]","-map","[a]","-t",str(duration),
                 "-c:v","libx264","-preset","veryfast","-crf","18","-pix_fmt","yuv420p",
