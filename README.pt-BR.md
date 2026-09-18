@@ -1,5 +1,9 @@
 # CutClips
 
+**Português** | [English](README.md)
+
+> **Gratuito, e proibida a venda.** O CutClips é totalmente gratuito, inclusive para ganhar dinheiro com os vídeos que você cria com ele. O que não é permitido é comercializar a plataforma: vender o software, cópias ou versões modificadas, ou serviços pagos baseados nele (como hospedá-lo para terceiros). Veja a [licença](#licença).
+
 **Vídeo longo → clipes verticais → revisão → pacote de publicação → resultados.**
 
 Aplicativo local (self-hosted) que transforma vídeos longos, lives e links em clipes verticais legendados para Shorts, TikTok e Reels, e também monta formatos prontos: ranking Top 3/4/5, quiz com suspense, reação lado a lado e vídeo narrado a partir de um tema. Feito em Python, FastAPI, SQLite e FFmpeg, com interface web sem framework.
@@ -7,6 +11,32 @@ Aplicativo local (self-hosted) que transforma vídeos longos, lives e links em c
 Seus vídeos não saem da sua máquina. A exceção é o texto enviado à IA que você escolher.
 
 ![Tela inicial do CutClips](docs/screenshots/inicio.png)
+
+## Requisitos para rodar localmente
+
+| | Necessário | Observação |
+|---|---|---|
+| **Sistema** | Windows 10 ou 11 | Os lançadores são PowerShell. Em Linux/macOS, use o [Docker](#docker) ou rode a API e o worker à mão |
+| **Python** | 3.11 ou mais novo | |
+| **FFmpeg e FFprobe** | Com libass, no `PATH` | Ou o pacote `static-ffmpeg` dentro da `.venv`, que os scripts encontram sozinhos |
+| **Git** | Para clonar | A pasta precisa se chamar **`cutclips`**, em minúsculo: ela é o nome do pacote Python |
+| **Espaço em disco** | Alguns GB livres | O modelo de transcrição padrão (`large-v3`) é baixado na primeira execução |
+| **IA para a seleção** | Opcional | Chave da Anthropic ou da OpenAI, ou um Ollama local. Sem nenhuma, use o modo **Sem IA** |
+| **GPU NVIDIA** | Opcional | Acelera a transcrição e a codificação (NVENC) |
+| **Chave do Pexels** | Opcional | Imagens do vídeo narrado. Sem ela, usa a pasta de fundos |
+| **Conta Google Cloud** | Opcional, **só no Windows** | Para conectar o canal do YouTube: as credenciais são protegidas pelo DPAPI do Windows |
+
+Instalação rápida:
+
+```powershell
+git clone https://github.com/CodaxiKing/CutClips.git cutclips
+cd cutclips
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+copy .env.example .env
+```
+
+Depois, dê dois cliques em **`Iniciar CutClips.cmd`**. Detalhes em [Como rodar](#como-rodar).
 
 ## Sumário
 
@@ -21,6 +51,7 @@ Seus vídeos não saem da sua máquina. A exceção é o texto enviado à IA que
 - [Confiabilidade](#confiabilidade)
 - [Testes](#testes)
 - [Conteúdo e monetização](#conteúdo-e-monetização)
+- [Licença](#licença)
 
 ---
 
@@ -82,22 +113,19 @@ Veja [Conectar a conta Google](#conectar-a-conta-google-windows).
 
 ## Como rodar
 
-### Requisitos
-
-- **Python 3.11+**
-- **FFmpeg e FFprobe** com libass no `PATH`. Alternativa: o pacote opcional `static-ffmpeg` dentro da `.venv`, que os scripts encontram sozinhos.
-- Para seleção por IA: chave da **Anthropic** ou da **OpenAI**, ou um **Ollama** local. Sem chave, use o modo **Sem IA** (heurística).
-- Opcional: GPU NVIDIA para transcrição e codificação mais rápidas.
+Confira antes os [requisitos](#requisitos-para-rodar-localmente).
 
 ### Windows: dois cliques
 
 ```powershell
+git clone https://github.com/CodaxiKing/CutClips.git cutclips
+cd cutclips
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Depois, dê dois cliques em **`Iniciar ClipForge.cmd`**. Ele sobe a API e o worker em segundo plano, espera o servidor responder e abre http://127.0.0.1:8000.
+Depois, dê dois cliques em **`Iniciar CutClips.cmd`**. Ele sobe a API e o worker em segundo plano, espera o servidor responder e abre http://127.0.0.1:8000.
 
 > Não abra `web/index.html` direto no navegador: a página depende da API. Se isso acontecer, ela redireciona sozinha para `http://127.0.0.1:8000/`.
 
@@ -111,7 +139,7 @@ powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -Mode api
 powershell -ExecutionPolicy Bypass -File scripts/start.ps1 -Mode worker
 ```
 
-Abra http://127.0.0.1:8000. A API e o worker precisam usar o mesmo `CLIPFORGE_STORAGE`. Sem o worker, os projetos entram na fila mas não são processados.
+Abra http://127.0.0.1:8000. A API e o worker precisam usar o mesmo `CUTCLIPS_STORAGE`. Sem o worker, os projetos entram na fila mas não são processados.
 
 ### Docker
 
@@ -124,11 +152,20 @@ A API recebe uploads e serve arquivos; o worker faz download, transcrição e re
 
 > Não há autenticação de usuários. Mantenha a interface acessível só na sua máquina ou numa rede confiável.
 
+### Atualizando de uma versão chamada ClipForge
+
+O projeto se chamava ClipForge. Nada do que você já tem se perde:
+
+- **Pasta:** renomeie `clipforge` para `cutclips`. Os imports passaram a ser `cutclips.*`.
+- **Banco:** se só existir `storage/clipforge.db`, ele continua sendo usado no mesmo lugar. Instalações novas criam `storage/cutclips.db`.
+- **Variáveis:** um `.env` ou `docker-compose.yml` com `CLIPFORGE_*` continua funcionando. Troque para `CUTCLIPS_*` quando puder.
+- **Navegador:** preferências e candidatos salvos com as chaves antigas continuam sendo lidos.
+
 ### Linha de comando (sem interface)
 
 ```bash
-python -m clipforge.run entrevista.mp4 -o ./saida -n 5 --min 20 --max 60 --niche tecnologia --audience iniciantes
-python -m clipforge.run entrevista.mp4 -o ./saida --provider heuristic --layout fit --denoise
+python -m cutclips.run entrevista.mp4 -o ./saida -n 5 --min 20 --max 60 --niche tecnologia --audience iniciantes
+python -m cutclips.run entrevista.mp4 -o ./saida --provider heuristic --layout fit --denoise
 ```
 
 ### Por que `-P`?
@@ -143,28 +180,28 @@ O aplicativo carrega o `.env` sozinho, sem sobrescrever variáveis que já estej
 
 | Variável | Padrão | Para que serve |
 |---|---|---|
-| `CLIPFORGE_LLM_PROVIDER` | `anthropic` | `anthropic`, `openai`, `ollama` ou `heuristic` (sem IA) |
-| `CLIPFORGE_LLM_MODEL` | `claude-sonnet-4-5` | Modelo da seleção. Também pode ser escolhido na interface |
-| `CLIPFORGE_TRIAGE_MODEL` / `CLIPFORGE_REVIEW_MODEL` | — | Modelos separados para triagem dos blocos e revisão final |
+| `CUTCLIPS_LLM_PROVIDER` | `anthropic` | `anthropic`, `openai`, `ollama` ou `heuristic` (sem IA) |
+| `CUTCLIPS_LLM_MODEL` | `claude-sonnet-4-5` | Modelo da seleção. Também pode ser escolhido na interface |
+| `CUTCLIPS_TRIAGE_MODEL` / `CUTCLIPS_REVIEW_MODEL` | — | Modelos separados para triagem dos blocos e revisão final |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` | — | Credenciais do provedor escolhido |
-| `CLIPFORGE_WHISPER_MODEL` | `large-v3` | `tiny` a `large-v3` |
-| `CLIPFORGE_WHISPER_DEVICE` | `auto` | `auto`, `cuda` ou `cpu` |
-| `CLIPFORGE_WHISPER_BEAM` | `0` | 0 = automático (2 na CPU, 5 na GPU) |
-| `CLIPFORGE_LANGUAGE` | vazio | Vazio = detectar automaticamente |
-| `CLIPFORGE_MAX_CLIPS` | `10` | Máximo de clipes por vídeo |
-| `CLIPFORGE_MIN_DURATION` / `CLIPFORGE_MAX_DURATION` | `20` / `90` | Duração dos clipes, em segundos |
-| `CLIPFORGE_VIDEO_ENCODER` | `auto` | `auto`, `nvenc`, `qsv`, `amf` ou `cpu` |
-| `CLIPFORGE_CRF` / `CLIPFORGE_PRESET` | `19` / `medium` | Qualidade e velocidade da codificação |
-| `CLIPFORGE_LIVE_MINUTES` | `30` | Janela gravada de uma live em andamento |
-| `CLIPFORGE_PROSPECT_AFTER_MINUTES` | `25` | Acima disso, o vídeo passa pelo garimpo antes de transcrever |
-| `CLIPFORGE_SAFE_AREA` / `CLIPFORGE_CENTER_BIAS` | `0.5` / `0.25` | Enquadramento vertical |
-| `CLIPFORGE_FACE_MODEL` | — | Caminho de um `face_detection_yunet*.onnx` para detecção por rede neural |
-| `CLIPFORGE_STORAGE` | `./storage` | Banco SQLite, projetos e caches |
+| `CUTCLIPS_WHISPER_MODEL` | `large-v3` | `tiny` a `large-v3` |
+| `CUTCLIPS_WHISPER_DEVICE` | `auto` | `auto`, `cuda` ou `cpu` |
+| `CUTCLIPS_WHISPER_BEAM` | `0` | 0 = automático (2 na CPU, 5 na GPU) |
+| `CUTCLIPS_LANGUAGE` | vazio | Vazio = detectar automaticamente |
+| `CUTCLIPS_MAX_CLIPS` | `10` | Máximo de clipes por vídeo |
+| `CUTCLIPS_MIN_DURATION` / `CUTCLIPS_MAX_DURATION` | `20` / `90` | Duração dos clipes, em segundos |
+| `CUTCLIPS_VIDEO_ENCODER` | `auto` | `auto`, `nvenc`, `qsv`, `amf` ou `cpu` |
+| `CUTCLIPS_CRF` / `CUTCLIPS_PRESET` | `19` / `medium` | Qualidade e velocidade da codificação |
+| `CUTCLIPS_LIVE_MINUTES` | `30` | Janela gravada de uma live em andamento |
+| `CUTCLIPS_PROSPECT_AFTER_MINUTES` | `25` | Acima disso, o vídeo passa pelo garimpo antes de transcrever |
+| `CUTCLIPS_SAFE_AREA` / `CUTCLIPS_CENTER_BIAS` | `0.5` / `0.25` | Enquadramento vertical |
+| `CUTCLIPS_FACE_MODEL` | — | Caminho de um `face_detection_yunet*.onnx` para detecção por rede neural |
+| `CUTCLIPS_STORAGE` | `./storage` | Banco SQLite, projetos e caches |
 | `PEXELS_API_KEY` | — | Imagens do vídeo narrado. Sem ela, usa a pasta de fundos |
 | `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` | — | OAuth do YouTube. Alternativa: importar o JSON na interface |
 | `HF_TOKEN` | — | Separação de falantes com `pyannote` (opcional) |
 
-A lista completa, com comentários, está no [`.env.example`](.env.example). As variáveis ainda usam o prefixo `CLIPFORGE_` do nome anterior do projeto.
+A lista completa, com comentários, está no [`.env.example`](.env.example). Nomes com o prefixo antigo `CLIPFORGE_` continuam aceitos; quando os dois existem, o `CUTCLIPS_` vence.
 
 ---
 
@@ -282,7 +319,7 @@ Na ordem em que o pipeline os usa:
 
 | Script | O que faz |
 |---|---|
-| [`start-all.ps1`](scripts/start-all.ps1) | Sobe a API e o worker em segundo plano e abre o navegador. É o que o `Iniciar ClipForge.cmd` chama |
+| [`start-all.ps1`](scripts/start-all.ps1) | Sobe a API e o worker em segundo plano e abre o navegador. É o que o `Iniciar CutClips.cmd` chama |
 | [`start.ps1`](scripts/start.ps1) | Sobe só a API (`-Mode api`) ou só o worker (`-Mode worker`), achando o Python da `.venv` e o FFmpeg |
 | [`launch.py`](scripts/launch.py) | Ponto de entrada dos dois, sem deixar o `select.py` sombrear a stdlib |
 
@@ -332,7 +369,7 @@ Uma nova edição volta a ser rascunho. Arquivos, metadados de publicação e m�
 
 No modo **Cortes de live** da tela inicial entram VOD, clipe e canal ao vivo das três plataformas. Uma transmissão em andamento é gravada a partir de agora, pela janela escolhida. A gravação roda em tempo real, então 30 minutos pedidos são 30 minutos de espera. VOD e clipe são baixados normalmente.
 
-Acima de `CLIPFORGE_PROSPECT_AFTER_MINUTES` (25 min por padrão), o vídeo passa pelo **garimpo** antes da transcrição. Uma varredura só de áudio mede o quanto cada instante sobe acima do normal daquele trecho, soma as mudanças de cena e devolve os picos. Só as janelas em volta desses picos vão para o Whisper. Numa VOD de 6 h, isso troca horas de GPU por alguns minutos. Transmissão sem nenhuma reação (tutorial, música) cai para sondagens espalhadas pelo vídeo.
+Acima de `CUTCLIPS_PROSPECT_AFTER_MINUTES` (25 min por padrão), o vídeo passa pelo **garimpo** antes da transcrição. Uma varredura só de áudio mede o quanto cada instante sobe acima do normal daquele trecho, soma as mudanças de cena e devolve os picos. Só as janelas em volta desses picos vão para o Whisper. Numa VOD de 6 h, isso troca horas de GPU por alguns minutos. Transmissão sem nenhuma reação (tutorial, música) cai para sondagens espalhadas pelo vídeo.
 
 A saída é escolhida por projeto: **16:9 horizontal**, que mantém o quadro inteiro da gameplay, ou **9:16 vertical**, que usa o rastreamento de rosto.
 
@@ -355,10 +392,10 @@ Os vídeos em alta vêm da central oficial de tendências do TikTok, que pode ex
 
 ### Enquadramento vertical
 
-- **Rosto suave e centralizado** prefere manter a câmera no centro, trava o recorte quando o rosto está estável e usa uma trajetória de 30 pontos por segundo, com limite de velocidade. A preferência pelo centro só vale enquanto o rosto continua dentro da área segura (`CLIPFORGE_SAFE_AREA`). Ajuste fino: `CLIPFORGE_CENTER_BIAS`, `CLIPFORGE_STATIONARY_THRESHOLD`, `CLIPFORGE_MAX_PAN_SPEED`, `CLIPFORGE_HOLD_SECONDS` e `CLIPFORGE_MOTION_FPS`.
-- A detecção usa cascatas frontais e de perfil, descarta caixas pequenas demais e segura o enquadramento quando o rosto some por mais de um segundo. Para material difícil (luz baixa, rosto de lado, plano aberto), aponte `CLIPFORGE_FACE_MODEL` para um `face_detection_yunet*.onnx` do OpenCV Zoo.
-- A câmera prefere um movimento único e contínuo a várias correções. Quando o assunto vai e volta entre posições recorrentes, o rastreamento para em vez de acompanhar o vaivém (`CLIPFORGE_LINEAR_TOLERANCE`).
-- Trecho sem rosto (gameplay, slide, tela compartilhada) segue a faixa vertical com mais movimento e detalhe, e o clipe avisa. `CLIPFORGE_MIN_FACE_COVERAGE` define com que frequência o rosto precisa aparecer para o rastreamento ser confiável.
+- **Rosto suave e centralizado** prefere manter a câmera no centro, trava o recorte quando o rosto está estável e usa uma trajetória de 30 pontos por segundo, com limite de velocidade. A preferência pelo centro só vale enquanto o rosto continua dentro da área segura (`CUTCLIPS_SAFE_AREA`). Ajuste fino: `CUTCLIPS_CENTER_BIAS`, `CUTCLIPS_STATIONARY_THRESHOLD`, `CUTCLIPS_MAX_PAN_SPEED`, `CUTCLIPS_HOLD_SECONDS` e `CUTCLIPS_MOTION_FPS`.
+- A detecção usa cascatas frontais e de perfil, descarta caixas pequenas demais e segura o enquadramento quando o rosto some por mais de um segundo. Para material difícil (luz baixa, rosto de lado, plano aberto), aponte `CUTCLIPS_FACE_MODEL` para um `face_detection_yunet*.onnx` do OpenCV Zoo.
+- A câmera prefere um movimento único e contínuo a várias correções. Quando o assunto vai e volta entre posições recorrentes, o rastreamento para em vez de acompanhar o vaivém (`CUTCLIPS_LINEAR_TOLERANCE`).
+- Trecho sem rosto (gameplay, slide, tela compartilhada) segue a faixa vertical com mais movimento e detalhe, e o clipe avisa. `CUTCLIPS_MIN_FACE_COVERAGE` define com que frequência o rosto precisa aparecer para o rastreamento ser confiável.
 - **Estimar quem fala** combina atividade labial com áudio e espera antes de trocar de participante. É experimental: em podcasts com vários participantes, revise ou prefira tela dividida.
 - Clipes de baixa resolução são ampliados; exportar em 1080×1920 não recupera detalhe ausente.
 
@@ -370,9 +407,9 @@ A nota separa gancho, clareza, emoção ou utilidade, densidade, potencial de t�
 
 Depois de cinco clipes com métricas, o worker cria um perfil agregado das melhores durações, formatos e critérios. O perfil só influencia os pesos, dentro de limites conservadores, e publica sua confiança no manifesto.
 
-A separação de falantes local usa energia, tom, cruzamentos de zero e assinatura espectral. Para mais precisão, instale `pyannote.audio`, aceite os termos do `pyannote/speaker-diarization-3.1` no Hugging Face e defina `HF_TOKEN`. `CLIPFORGE_DIARIZATION=0` desativa as duas.
+A separação de falantes local usa energia, tom, cruzamentos de zero e assinatura espectral. Para mais precisão, instale `pyannote.audio`, aceite os termos do `pyannote/speaker-diarization-3.1` no Hugging Face e defina `HF_TOKEN`. `CUTCLIPS_DIARIZATION=0` desativa as duas.
 
-A edição automática remove pausas acima de `CLIPFORGE_INTERNAL_SILENCE_SECONDS` e vícios isolados cercados por pausa, e um zoom curto disfarça os pontos de edição.
+A edição automática remove pausas acima de `CUTCLIPS_INTERNAL_SILENCE_SECONDS` e vícios isolados cercados por pausa, e um zoom curto disfarça os pontos de edição.
 
 ### Conectar a conta Google (Windows)
 
@@ -403,7 +440,7 @@ Medido num vídeo 1080p de 231 s, sem GPU, em oito núcleos. `0,25x` quer dizer 
 | índice de mídia (rostos, 1 Hz) | 57,5 s | 0,25x |
 | **renderização, por clipe** | **82 s** (clipe de 45 s) | **1,8x** |
 
-A renderização domina porque é a única etapa que se multiplica pelo número de clipes. Cada clipe passa por duas codificações: a base (recorte, câmera, cortes internos) e depois a queima da legenda. É de propósito: a base fica em cache, então corrigir uma palavra re-renderiza só a segunda passagem, bem mais barata. Com GPU, `CLIPFORGE_VIDEO_ENCODER=nvenc` rende muito mais do que mexer em `CLIPFORGE_PRESET` e `CLIPFORGE_CRF`.
+A renderização domina porque é a única etapa que se multiplica pelo número de clipes. Cada clipe passa por duas codificações: a base (recorte, câmera, cortes internos) e depois a queima da legenda. É de propósito: a base fica em cache, então corrigir uma palavra re-renderiza só a segunda passagem, bem mais barata. Com GPU, `CUTCLIPS_VIDEO_ENCODER=nvenc` rende muito mais do que mexer em `CUTCLIPS_PRESET` e `CUTCLIPS_CRF`.
 
 ### Transcrição
 
@@ -416,13 +453,13 @@ A renderização domina porque é a única etapa que se multiplica pelo número 
 | feixe 1, 8 threads | 12,3 s | 4,9x |
 | **feixe 2, 8 threads (padrão)** | **11,4 s** | **5,3x** |
 
-Todas devolveram o mesmo texto, palavra por palavra. Em áudio ruidoso a diferença pode aparecer, por isso `CLIPFORGE_WHISPER_BEAM` continua ajustável (e volta a 5 com GPU).
+Todas devolveram o mesmo texto, palavra por palavra. Em áudio ruidoso a diferença pode aparecer, por isso `CUTCLIPS_WHISPER_BEAM` continua ajustável (e volta a 5 com GPU).
 
 ---
 
 ## Confiabilidade
 
-- Uploads ficam em estado `uploading`, num arquivo `.part`, até a cópia terminar. Só depois entram na fila. Limite padrão: 4 GB (`CLIPFORGE_MAX_UPLOAD_BYTES`).
+- Uploads ficam em estado `uploading`, num arquivo `.part`, até a cópia terminar. Só depois entram na fila. Limite padrão: 4 GB (`CUTCLIPS_MAX_UPLOAD_BYTES`).
 - A fila usa transações SQLite. Workers renovam uma concessão por heartbeat, tarefas abandonadas são recuperadas, e tokens impedem que um worker antigo conclua uma tarefa já reassumida por outro. Só uma edição por projeto é processada por vez.
 - Cada projeto tem etapas independentes (transcrição, análise, rastreamento, renderização) em `pipeline_stages`, com concessão própria. Vários workers processam projetos diferentes sem repetir uma etapa concluída.
 - A renderização incremental guarda o vídeo vertical sem legenda, as três capas e a trajetória. Uma alteração só de texto reaplica as legendas.
@@ -455,3 +492,14 @@ Teste de navegador (Playwright): `tests/serve_ui.py` sobe uma base isolada, `tes
 As instruções de seleção por IA priorizam contexto preservado, títulos fiéis, exemplos próprios e diversidade editorial. Isso não certifica originalidade: revise o material e os seus direitos antes de publicar.
 
 O sistema ajuda na produção; a monetização depende do conteúdo, do canal e das políticas do YouTube. Legendas e cortes, por si só, não garantem elegibilidade de material reutilizado, e montar vídeos de terceiros não cria licença sobre eles. Veja as [políticas oficiais](https://support.google.com/youtube/answer/1311392?hl=pt-BR).
+
+---
+
+## Licença
+
+[MIT com a Commons Clause](LICENSE). Em resumo:
+
+- **Permitido:** usar o CutClips de graça, para fins pessoais ou comerciais, inclusive ganhar dinheiro com os vídeos que você cria; estudar, modificar e compartilhar o código gratuitamente.
+- **Proibido:** vender o CutClips, ou oferecer mediante pagamento um produto ou serviço cujo valor venha dele, como vender cópias, versões modificadas, hospedagem ou suporte pagos.
+
+Este resumo não substitui o arquivo [LICENSE](LICENSE), que é o que vale. O texto da licença está em inglês.
