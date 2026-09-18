@@ -80,6 +80,11 @@
     e.preventDefault();const button=e.target.querySelector('button'),result=el('channelResult');button.disabled=true;result.textContent='Consultando o canal público…';
     try{const response=await fetch('/api/channel/inspect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Confira o link do canal.');result.innerHTML=`<h3>${esc(data.name || 'Canal')}</h3><p class="yt-muted">${esc(data.source)}</p><p>${data.videos.length} vídeos · ${fmt(data.sample_views)} visualizações acumuladas na amostra.</p><p class="yt-muted">${esc(data.delivery)}</p><ul>${data.recommendations.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><div class="yt-table-wrap"><table class="yt-table"><thead><tr><th>Vídeo</th><th>Visualizações</th></tr></thead><tbody>${data.videos.map(v=>`<tr><td><a href="https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}" target="_blank" rel="noopener">${esc(v.title)}</a></td><td>${fmt(v.views)}</td></tr>`).join('')}</tbody></table></div>`;}catch(err){result.textContent=err.message;}finally{button.disabled=false;}
   };
+  el('diagnoseForm').onsubmit=async e=>{
+    e.preventDefault();const button=e.target.querySelector('button'),result=el('diagnoseResult');button.disabled=true;result.textContent='Analisando os números…';
+    const body=Object.fromEntries([...new FormData(e.target)].filter(([,v])=>String(v).trim()!=='').map(([k,v])=>[k,Number(v)]));
+    try{const response=await fetch('/api/channel/diagnose',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Confira os números: nenhum pode ser negativo e o CTR vai de 0 a 100.');result.innerHTML=`<p class="yt-muted">${esc(data.source)}</p><ul>${data.findings.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><p class="yt-muted">${esc(data.note)}</p>`;}catch(err){result.textContent=err.message;}finally{button.disabled=false;}
+  };
   cards();
   async function enter(){if(location.hash!=='#/channel')return;try{await status();await sync();}catch(err){message(err.message,true);}}
   window.addEventListener('hashchange',enter);
