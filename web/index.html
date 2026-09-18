@@ -17,7 +17,7 @@
 <link rel="stylesheet" href="/assets/discover.css">
 <link rel="stylesheet" href="/assets/montages.css">
 <link rel="stylesheet" href="/assets/theme.css">
-<title>ClipForge</title>
+<title>CutClips</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23fff'/%3E%3Cpath d='M12 9.5v13l11-6.5z' fill='%23000'/%3E%3C/svg%3E">
 <style>
   :root{
@@ -299,7 +299,7 @@
   <div class="wrap">
     <a class="brand" href="#/">
       <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M12 9.5v13l11-6.5z" fill="#000"/></svg>
-      ClipForge
+      CutClips
     </a>
     <div class="nav-links"><a href="#/" data-nav="home">Início</a><a href="#/" data-scroll="projetos" data-nav="projects">Projetos</a><a href="#/top5" data-nav="top5">Ranking</a><a href="#/quiz" data-nav="quiz">Quiz</a><a href="#/reaction" data-nav="reaction">Reação</a><a href="#/narration" data-nav="narration">Narrado</a><a href="#/channel" data-nav="channel">YouTube</a></div>
     <span class="status"><i class="dot" id="healthDot"></i><span id="health">conectando…</span></span>
@@ -495,7 +495,7 @@
     <div class="hero">
       <p class="eyebrow">Clipes com IA · roda na sua máquina</p>
       <h1 class="big" id="heroTitle">Seus melhores momentos, prontos para virar clipes. <span>Crie, revise e publique.</span></h1>
-      <p class="lede" id="heroLede">Cole um link do YouTube ou envie um arquivo. O ClipForge transcreve, encontra os melhores
+      <p class="lede" id="heroLede">Cole um link do YouTube ou envie um arquivo. O CutClips transcreve, encontra os melhores
         momentos, reenquadra em 9:16 seguindo quem fala e queima a legenda.</p>
 
       <div class="modes" role="tablist" aria-label="Tipo de projeto">
@@ -522,7 +522,7 @@
         </button>
       </div>
       <p class="hint" id="urlHint" hidden>Só links do YouTube (youtube.com ou youtu.be)</p>
-      <p class="hint note" id="liveHint" hidden>VOD, clipe ou transmissão da Twitch, Kick e YouTube. Em transmissão ao vivo o ClipForge grava uma janela a partir de agora — a gravação roda em tempo real.</p>
+      <p class="hint note" id="liveHint" hidden>VOD, clipe ou transmissão da Twitch, Kick e YouTube. Em transmissão ao vivo o CutClips grava uma janela a partir de agora — a gravação roda em tempo real.</p>
       <input type="file" id="file" accept="video/*" hidden>
 
       <div class="config" id="config" hidden>
@@ -622,7 +622,7 @@
   <section id="project" class="page" hidden></section>
 </main>
 
-<footer><div class="wrap">ClipForge · self-hosted · seus vídeos não saem da sua máquina (exceto o texto enviado à IA escolhida)</div></footer>
+<footer><div class="wrap">CutClips · self-hosted · seus vídeos não saem da sua máquina (exceto o texto enviado à IA escolhida)</div></footer>
 
 <div class="drop-overlay" id="dropOverlay" hidden>
   <div>
@@ -789,8 +789,8 @@ function setMode(next){
     ? "Os melhores momentos da sua live, prontos para publicar. <span>Cole o link e baixe o corte.</span>"
     : "Seus melhores momentos, prontos para virar clipes. <span>Crie, revise e publique.</span>";
   $("heroLede").textContent = live
-    ? "Cole o link de uma live, VOD ou clipe da Twitch, Kick ou YouTube. O ClipForge encontra os picos da transmissão, transcreve só esses trechos, corta o tempo morto, legenda e entrega o vídeo pronto para baixar."
-    : "Cole um link do YouTube ou envie um arquivo. O ClipForge transcreve, encontra os melhores momentos, reenquadra em 9:16 seguindo quem fala e queima a legenda.";
+    ? "Cole o link de uma live, VOD ou clipe da Twitch, Kick ou YouTube. O CutClips encontra os picos da transmissão, transcreve só esses trechos, corta o tempo morto, legenda e entrega o vídeo pronto para baixar."
+    : "Cole um link do YouTube ou envie um arquivo. O CutClips transcreve, encontra os melhores momentos, reenquadra em 9:16 seguindo quem fala e queima a legenda.";
   $("url").placeholder = live ? "Cole o link da live, VOD ou clipe" : "Cole um link do YouTube";
   $("go").textContent = live ? "Gerar corte" : "Gerar clipes";
   store("mode", mode);
@@ -1110,7 +1110,7 @@ async function renderProject(){
   const j = await r.json();
   window.studioJob = j;
   const name = j.title || (j.source_url ? "Vídeo do YouTube" : j.filename);
-  document.title = `${name} · ClipForge`;
+  document.title = `${name} · CutClips`;
   if (j.settings?.kind === "top5" && window.TopFive) {
     if (j.status === "error") window.TopFive.renderError(j, box, back);
     else window.TopFive.renderProject(j, box, back);
@@ -1247,7 +1247,7 @@ function route(){
     $("project").innerHTML = "";
     renderProject();
   } else {
-    document.title = "ClipForge";
+    document.title = "CutClips";
   }
   window.scrollTo(0, 0);
 }

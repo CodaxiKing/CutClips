@@ -188,7 +188,7 @@ def process(
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="ClipForge — vídeo longo -> clipes verticais")
+    ap = argparse.ArgumentParser(description="CutClips — vídeo longo -> clipes verticais")
     ap.add_argument("video", help="arquivo de vídeo ou link do YouTube, Twitch ou Kick")
     ap.add_argument("-o", "--out", default="./out")
     ap.add_argument("-n", "--max-clips", type=int)

@@ -1,4 +1,4 @@
-"""ClipForge — pipeline de clipes verticais automáticos."""
+"""CutClips — pipeline de clipes verticais automáticos."""
 from .config import CONFIG, Config
 from .run import process
 

@@ -184,7 +184,7 @@ def connect(request: Request):
 def open_browser(request: Request):
     origin = local_origin(request)
     if not webbrowser.open(origin + "/?connect=youtube#/channel"):
-        raise HTTPException(503, "Abra o ClipForge no navegador padrão para conectar sua conta Google.")
+        raise HTTPException(503, "Abra o CutClips no navegador padrão para conectar sua conta Google.")
     return {"opened": True}
 
 
@@ -197,7 +197,7 @@ def callback(request: Request, state: str = "", code: str = "", error: str = "")
         pending = PENDING.get(state)
         cookie = request.cookies.get("youtube_oauth_state", "")
         if not pending or not secrets.compare_digest(cookie, state) or pending["expires"] < time.time():
-            raise HTTPException(400, "Conexão inválida ou expirada. Inicie novamente pelo ClipForge.")
+            raise HTTPException(400, "Conexão inválida ou expirada. Inicie novamente pelo CutClips.")
         del PENDING[state]
     destination = "/?youtube="
     if error or not code:
@@ -276,7 +276,7 @@ def reach(token, start, end):
     jobs = pages(token, REPORTING + "/jobs", "jobs")
     job = next((j for j in jobs if j["reportTypeId"] == "channel_reach_basic_a1" and not j.get("expireTime")), None)
     if not job:
-        job = call("POST", REPORTING + "/jobs", token, json={"reportTypeId": "channel_reach_basic_a1", "name": "ClipForge - alcance"}).json()
+        job = call("POST", REPORTING + "/jobs", token, json={"reportTypeId": "channel_reach_basic_a1", "name": "CutClips - alcance"}).json()
     reports = pages(token, REPORTING + "/jobs/" + job["id"] + "/reports", "reports",
                     startTimeAtOrAfter=str(start) + "T00:00:00Z", startTimeBefore=str(end + timedelta(days=1)) + "T00:00:00Z")
     # Replacements are processed oldest first; newer reports supersede the same day.

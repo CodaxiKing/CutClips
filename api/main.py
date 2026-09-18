@@ -41,7 +41,7 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title="ClipForge", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="CutClips", version="0.2.0", lifespan=lifespan)
 app.include_router(router)
 from api.channel import router as channel_router
 app.include_router(channel_router)
@@ -86,7 +86,7 @@ def _clip_path(job_id: str, filename: str) -> Path:
 def index() -> str:
     page = WEB / "index.html"
     if not page.exists():
-        return "<h1>ClipForge</h1><p>interface não encontrada</p>"
+        return "<h1>CutClips</h1><p>interface não encontrada</p>"
     return page.read_text(encoding="utf-8")
 
 

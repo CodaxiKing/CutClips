@@ -73,9 +73,9 @@
   // Erros de rede e API desatualizada viram mensagens acionáveis, em vez de "Failed to fetch".
   async function getJSON(url,fallback){
     let response;
-    try{response=await fetch(url);}catch{throw Error('Sem conexão com o servidor do ClipForge. Verifique se ele está aberto e recarregue a página.');}
+    try{response=await fetch(url);}catch{throw Error('Sem conexão com o servidor do CutClips. Verifique se ele está aberto e recarregue a página.');}
     const body=await response.json().catch(()=>({}));
-    if(response.status===404&&body.detail==='Not Found')throw Error('O servidor do ClipForge em execução é de uma versão anterior. Feche e abra o ClipForge de novo para usar a busca de vídeos.');
+    if(response.status===404&&body.detail==='Not Found')throw Error('O servidor do CutClips em execução é de uma versão anterior. Feche e abra o CutClips de novo para usar a busca de vídeos.');
     if(!response.ok)throw Error(typeof body.detail==='string'?body.detail:fallback);
     return body;
   }
