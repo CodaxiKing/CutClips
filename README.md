@@ -4,6 +4,8 @@
 
 > **Free, and not for sale.** CutClips is completely free to use, including to make money from the videos you create with it. What is not allowed is selling the platform itself: the software, copies or modified versions of it, or paid services built on it (such as hosting it for others). See the [license](#license).
 
+> **Contributions are welcome.** Found a bug or have an idea? Open an [issue](https://github.com/CodaxiKing/CutClips/issues). Want to send an improvement? Fork the repository, create a branch, run the [tests](#tests) and open a [pull request](https://github.com/CodaxiKing/CutClips/pulls) (PR). By contributing, you agree that your contribution is released under the project's [license](#license).
+
 **Long video → vertical clips → review → publishing package → results.**
 
 A local, self-hosted app that turns long videos, livestreams and links into captioned vertical clips for Shorts, TikTok and Reels. It also builds ready-made formats: Top 3/4/5 rankings, suspense quizzes, side-by-side reactions and narrated videos from a topic. Built with Python, FastAPI, SQLite and FFmpeg, with a framework-free web interface.
