@@ -13,6 +13,7 @@ from typing import Callable
 
 from .boundaries import detect_silences, refine_plan_bounds
 from .editor import atomic_json, render_clip
+from .insights import annotate as annotate_insights
 from .config import CONFIG, Config, apply_orientation
 from .download import download, is_supported_url
 from .probe import probe
@@ -181,6 +182,9 @@ def process(
         "clips": results,
         "elapsed_seconds": round(time.time() - t0, 1),
     }
+    report("analisando potencial e riscos", .98)
+    # Metadados só existem quando a fonte foi baixada de um link.
+    annotate_insights(manifest, job_dir, cfg, origin="link" if metadata else "arquivo", context=title)
     if write_manifest:
         atomic_json(job_dir / "manifest.json", manifest)
     report("pronto", 1.0)

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api import db, main, studio, worker
-from cutclips import backgrounds, montage, quiz_ai, quiz_bank
+from cutclips import backgrounds, insights, montage, quiz_ai, quiz_bank
 from cutclips import quiz as qz
 from cutclips import reaction as rc
 from cutclips.config import Config
@@ -297,6 +297,9 @@ def fake_llm(generated, review=None):
     calls = []
 
     def provider(system, user, cfg):
+        # A revisão de publicação roda no fim de cada vídeo; não é pedido de perguntas.
+        if system == insights.REVIEW_SYSTEM:
+            return '{"videos": []}'
         calls.append((system, user))
         if system == quiz_ai.REVIEW_SYSTEM:
             count = user.count('Pergunta:')

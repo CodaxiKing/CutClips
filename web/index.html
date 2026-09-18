@@ -231,6 +231,28 @@
   .label{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;font-weight:600;margin-bottom:7px}
   .hook{margin:0;font-size:16px;line-height:1.55;border-left:3px solid #fff;padding-left:14px}
   .reason{margin:0;color:var(--muted);font-size:14.5px}
+  .insights{border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;background:rgba(255,255,255,.015)}
+  .insights>summary{cursor:pointer;font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px;list-style:none;margin-bottom:12px}
+  .insights>summary::-webkit-details-marker{display:none}
+  .insights>summary svg{width:16px;height:16px;flex:none;transition:transform .2s}
+  .insights[open]>summary svg{transform:rotate(90deg)}
+  .insights .label{margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .eng-list{display:grid;gap:7px}
+  .eng{display:grid;grid-template-columns:78px 1fr 34px;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+  .eng i{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
+  .eng b{display:block;height:100%;border-radius:99px;background:var(--mid)}
+  .eng em{font-style:normal;text-align:right;color:var(--fg);font-variant-numeric:tabular-nums}
+  .risk-list,.title-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  .risk-list li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;font-size:13.5px}
+  .risk-list p{margin:3px 0 0;color:var(--muted);line-height:1.5}
+  .risk-list q{display:block;margin-top:4px;color:var(--dim);font-style:italic}
+  .risk-badge{font-size:11px;font-weight:650;padding:3px 8px;border-radius:99px;border:1px solid currentColor;white-space:nowrap;text-transform:none;letter-spacing:0}
+  .risk-baixo .risk-badge,.risk-badge.risk-baixo{color:var(--hi)}
+  .risk-medio .risk-badge,.risk-badge.risk-medio{color:var(--mid)}
+  .risk-alto .risk-badge,.risk-badge.risk-alto{color:var(--err)}
+  .risk-na .risk-badge{color:var(--dim)}
+  .title-list li{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px}
+  .ins-note{margin:10px 0 0;font-size:12.5px;color:var(--dim);line-height:1.5}
   details.transcript{border-top:1px solid var(--line);padding-top:14px}
   details.transcript summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;
     font-size:14px;font-weight:600;color:var(--muted);user-select:none}
@@ -1061,11 +1083,39 @@ function ring(score){
     </svg><b>${s}</b></div>` };
 }
 const SCORE_LABEL = { hi: "Boa avaliação editorial", mid: "Revisar os detalhes", lo: "Revisão recomendada" };
+const RISK_LABEL = { baixo: "Baixo", medio: "Médio", alto: "Alto" };
+
+// Estimativa e nível de risco, nunca probabilidade: o YouTube não publica como decide alcance ou punição.
+function insightsPanel(c, ins){
+  const bars = [["gancho", "Gancho"], ["retencao", "Retenção"], ["emocao", "Emoção"]].map(([key, label]) => {
+    const v = ins.engagement?.[key];
+    return `<div class="eng"><span>${label}</span><i><b style="width:${v ?? 0}%"></b></i><em>${v ?? "—"}</em></div>`;
+  }).join("");
+  const risk = ins.risk || { level: "baixo", items: [] };
+  const partial = risk.items.some(r => !r.level);
+  const items = risk.items.map(r => `<li class="risk-${r.level || "na"}">
+      <span class="risk-badge">${r.level ? RISK_LABEL[r.level] : "Não analisado"}</span>
+      <div><strong>${esc(r.label)}</strong>${r.reasons.map(x => `<p>${esc(x)}</p>`).join("")}${(r.quotes || []).map(q => `<q>${esc(q)}</q>`).join("")}</div>
+    </li>`).join("");
+  const titles = (ins.titles || []).map(t => `<li><span>${esc(t)}</span><button class="btn btn-outline btn-sm" data-copy="${esc(t)}">${ICON.copy}Copiar</button></li>`).join("");
+  const stale = c.editorial_stale || (ins.revision ?? 0) !== (c.revision ?? 0);
+  return `<details class="insights" open>
+    <summary>${ICON.chevron}Análise antes de publicar</summary>
+    ${stale ? `<p class="ins-note">Análise feita na versão ${ins.revision ?? 0}, antes da edição.</p>` : ""}
+    <div class="label">Engajamento estimado</div>
+    <div class="eng-list">${bars}</div>
+    <div class="label">Risco pelas diretrizes do YouTube <span class="risk-badge risk-${risk.level}">${RISK_LABEL[risk.level] || "—"}${partial ? " · parcial" : ""}</span></div>
+    ${items ? `<ul class="risk-list">${items}</ul>` : `<p class="ins-note">Nenhum alerta encontrado.</p>`}
+    ${titles ? `<div class="label">Títulos sugeridos</div><ul class="title-list">${titles}</ul>` : ""}
+    <p class="ins-note">Estimativa, não previsão: o YouTube não publica como decide alcance ou punição.${ins.note ? " " + esc(ins.note) : ""}</p>
+  </details>`;
+}
 
 function clipCard(id, c){
   const src = `/api/jobs/${id}/clips/${encodeURIComponent(c.file)}`;
   const poster = c.thumbnail ? `/api/jobs/${id}/clips/${encodeURIComponent(c.thumbnail)}` : "";
-  const sc = ring(c.score);
+  const ins = c.insights;
+  const sc = ring(ins ? ins.potential : c.score);
   return `
   <article class="clip" data-clip-index="${c.index}">
     <div class="clip-video"><video src="${src}" poster="${poster}" controls preload="none" playsinline></video></div>
@@ -1074,10 +1124,11 @@ function clipCard(id, c){
       <div class="score-row">
         ${sc.html}
         <div>
-          <div class="score-title">Avaliação editorial <span>/100</span></div>
-          <div class="score-sub ${sc.cls}">${SCORE_LABEL[sc.cls]}</div>
+          <div class="score-title">${ins ? "Potencial de viralização" : "Avaliação editorial"} <span>/100</span></div>
+          <div class="score-sub ${sc.cls}">${ins ? `estimativa · ${esc(ins.potential_basis)}` : SCORE_LABEL[sc.cls]}</div>
         </div>
       </div>
+      ${ins ? insightsPanel(c, ins) : ""}
       <dl class="facts">
         <div><dt>Duração</dt><dd>${num(c.actual_duration)}s</dd></div>
         <div><dt>Trecho</dt><dd>${clock(c.source_start)} – ${clock(c.source_end)}</dd></div>

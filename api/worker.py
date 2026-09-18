@@ -200,6 +200,9 @@ def run_pipeline_stage(task: dict) -> None:
             else:
                 process_montage = {"top5": topfive.process_topfive, "reaction": reaction.process_reaction}[task["stage"]]
                 manifest = process_montage(job["settings"],directory,progress)
+            from cutclips.insights import annotate
+            annotate(manifest, directory, build_config(job["settings"]), settings=job["settings"],
+                     context=job.get("title") or "")
             if db.finish_montage(task,manifest):
                 atomic_json(directory/"manifest.json",manifest)
             return
