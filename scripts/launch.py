@@ -15,6 +15,8 @@ os.environ.setdefault("CUTCLIPS_STORAGE", os.environ.get("CLIPFORGE_STORAGE", st
 
 if sys.argv[1] == "api":
     import uvicorn
-    uvicorn.run("api.main:app", host="127.0.0.1", port=int(sys.argv[2]), access_log=False)
+    # Local por padrão: não há autenticação. O Docker troca para 0.0.0.0 dentro do container.
+    host = os.environ.get("CUTCLIPS_HOST", "127.0.0.1")
+    uvicorn.run("api.main:app", host=host, port=int(sys.argv[2]), access_log=False)
 else:
     runpy.run_module("api.worker", run_name="__main__")

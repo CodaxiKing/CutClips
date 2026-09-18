@@ -13,7 +13,7 @@ services:
 
   worker:
     build: .
-    command: ["python", "-m", "api.worker"]
+    command: ["python", "-P", "scripts/launch.py", "worker"]
     volumes:
       - ./storage:/data
       - whisper-models:/models

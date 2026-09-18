@@ -1,0 +1,15 @@
+# Fica fora da imagem: dados, ambientes locais, segredos e artefatos de teste.
+.git
+.env
+.venv/
+.venv-imported/
+.tools/
+storage/
+out/
+tests/artifacts/
+tests/fixtures/
+docs/
+__pycache__/
+*.pyc
+.pytest_cache/
+pytest-cache-files-*/
