@@ -7,9 +7,11 @@ import sys
 
 root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(root))
-if not (root / "clipforge").is_dir():
+if not (root / "cutclips").is_dir():
     sys.path.insert(0, str(root.parent))
-os.environ.setdefault("CLIPFORGE_STORAGE", str(root / "storage"))
+# CLIPFORGE_STORAGE é o nome anterior; sem esta leitura, o padrão abaixo venceria e o
+# app abriria outra pasta de storage.
+os.environ.setdefault("CUTCLIPS_STORAGE", os.environ.get("CLIPFORGE_STORAGE", str(root / "storage")))
 
 if sys.argv[1] == "api":
     import uvicorn

@@ -24,15 +24,15 @@ from starlette.concurrency import run_in_threadpool
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from api import db  # noqa: E402
-from clipforge.config import STORAGE, Config, ORIENTATIONS, apply_orientation  # noqa: E402
-from clipforge.download import is_supported_url, platform_of  # noqa: E402
+from cutclips.config import STORAGE, Config, ORIENTATIONS, apply_orientation  # noqa: E402
+from cutclips.download import is_supported_url, platform_of  # noqa: E402
 from api.studio import router, job_dir  # noqa: E402
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 JOBS = Path(STORAGE) / "jobs"
 ALLOWED_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 CHUNK = 1 << 22  # 4 MB
-MAX_UPLOAD_BYTES = int(os.getenv("CLIPFORGE_MAX_UPLOAD_BYTES", str(4 * 1024**3)))
+MAX_UPLOAD_BYTES = int(os.getenv("CUTCLIPS_MAX_UPLOAD_BYTES", str(4 * 1024**3)))
 
 @asynccontextmanager
 async def lifespan(app):

@@ -17,9 +17,15 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from clipforge.config import STORAGE
+from cutclips.config import STORAGE
 
-DB_PATH = Path(STORAGE) / "clipforge.db"
+# Instalações de antes do nome CutClips gravaram em clipforge.db. O arquivo é usado no
+# lugar, sem renomear: API e worker abrem o banco juntos na partida, e mover o .db
+# separado do -wal nessa corrida perderia dados.
+_LEGACY_DB_PATH = Path(STORAGE) / "clipforge.db"
+DB_PATH = Path(STORAGE) / "cutclips.db"
+if not DB_PATH.exists() and _LEGACY_DB_PATH.exists():
+    DB_PATH = _LEGACY_DB_PATH
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS topfive_reports (

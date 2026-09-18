@@ -21,7 +21,7 @@ THUMB_DIR = STORAGE / "cache" / "fundos-quiz"
 VIDEO_EXT = {".mp4", ".mov", ".webm", ".mkv", ".m4v"}
 README = """Coloque aqui os vídeos de fundo dos quizzes (.mp4, .mov, .webm, .mkv ou .m4v).
 
-O ClipForge usa estes vídeos sozinho: no modo automático cada quiz pega o fundo
+O CutClips usa estes vídeos sozinho: no modo automático cada quiz pega o fundo
 usado há mais tempo e repete o vídeo em loop enquanto o quiz durar.
 Vídeos verticais (9:16) ficam melhores; horizontais são recortados no centro.
 """

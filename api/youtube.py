@@ -20,7 +20,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel, Field
-from clipforge.config import STORAGE
+from cutclips.config import STORAGE
 
 router = APIRouter(prefix="/api/youtube", tags=["YouTube"])
 VAULT = Path(STORAGE) / "youtube-credentials.bin"

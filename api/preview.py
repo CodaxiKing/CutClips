@@ -13,9 +13,9 @@ import threading
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from clipforge.config import STORAGE, Config
-from clipforge.download import DownloadError, is_supported_url
-from clipforge.montage import download_tiktok, ffmpeg, is_tiktok_url
+from cutclips.config import STORAGE, Config
+from cutclips.download import DownloadError, is_supported_url
+from cutclips.montage import download_tiktok, ffmpeg, is_tiktok_url
 from pathlib import Path
 
 router = APIRouter(prefix="/api/preview", tags=["Prévia"])
@@ -46,7 +46,7 @@ def download_window(url: str, start: float, target: Path) -> Path:
     """Janela de WINDOW segundos a partir de `start`, em até 480p com áudio."""
     import yt_dlp
     from yt_dlp.utils import download_range_func
-    from clipforge.download import _base_opts
+    from cutclips.download import _base_opts
 
     folder = target.parent
     folder.mkdir(parents=True, exist_ok=True)

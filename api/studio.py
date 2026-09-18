@@ -15,8 +15,8 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator
 
 from . import db
-from clipforge.config import STORAGE
-from clipforge.transcribe import Transcript
+from cutclips.config import STORAGE
+from cutclips.transcribe import Transcript
 
 router = APIRouter(prefix="/api")
 JOBS = Path(STORAGE) / "jobs"

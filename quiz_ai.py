@@ -65,7 +65,7 @@ def ai_status(cfg: Config | None = None) -> dict:
     provider = cfg.llm_provider
     if provider not in PROVIDERS:
         return {"provider": provider, "model": "", "ready": False,
-                "message": "Geração por IA desligada: defina CLIPFORGE_LLM_PROVIDER como anthropic, "
+                "message": "Geração por IA desligada: defina CUTCLIPS_LLM_PROVIDER como anthropic, "
                            "openai ou ollama no .env."}
     key = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}.get(provider)
     if key and not os.getenv(key, "").strip():

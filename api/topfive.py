@@ -4,9 +4,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 from api import db
 from api.studio import job_dir
-from clipforge import topfive as t5
-from clipforge.download import DownloadError
-from clipforge.topfive import Entry, TopFive
+from cutclips import topfive as t5
+from cutclips.download import DownloadError
+from cutclips.topfive import Entry, TopFive
 
 router = APIRouter(prefix="/api/top5", tags=["Top 5"])
 

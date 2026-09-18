@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api import db, main, studio, worker
-from clipforge import topfive as t5
-from clipforge.probe import probe
+from cutclips import topfive as t5
+from cutclips.probe import probe
 
 
 def payload():
@@ -122,7 +122,7 @@ def test_download_error_drops_the_ytdlp_boilerplate():
 
 def test_tiktok_download_retries_transient_extraction_failures(tmp_path,monkeypatch):
     import yt_dlp
-    from clipforge import montage
+    from cutclips import montage
     calls=[]
     class FlakyYDL:
         def __init__(self,opts): self.opts=opts
@@ -179,7 +179,7 @@ def test_clips_are_automatic_up_to_15s_and_never_pass_the_video_end(workdir,monk
 
 
 def test_probe_endpoint_reads_duration(client,monkeypatch):
-    from clipforge.download import DownloadError
+    from cutclips.download import DownloadError
     monkeypatch.setattr(t5,'tiktok_duration',lambda url:42.5)
     response=client.post('/api/top5/probe',json={'url':'https://www.tiktok.com/@x/video/1'})
     assert response.status_code==200 and response.json()=={'duration':42.5,'max_clip':15}

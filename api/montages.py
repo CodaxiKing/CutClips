@@ -10,11 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from starlette.concurrency import run_in_threadpool
 
 from api import db
-from clipforge import backgrounds, montage, narrate, quiz_ai, quiz_bank, sounds
-from clipforge.quiz import Quiz
-from clipforge.narrate import Narration
-from clipforge.reaction import Reaction
-from clipforge.select import ProviderError
+from cutclips import backgrounds, montage, narrate, quiz_ai, quiz_bank, sounds
+from cutclips.quiz import Quiz
+from cutclips.narrate import Narration
+from cutclips.reaction import Reaction
+from cutclips.select import ProviderError
 
 router = APIRouter(tags=["Montagens"])
 MAX_MUSIC_BYTES = 50 * 1024**2
@@ -96,7 +96,7 @@ async def quiz_background_thumbnail(name: str):
 def open_backgrounds_folder():
     folder = backgrounds.ensure_folder()
     # Só existe no Windows, e só faz sentido com a API rodando na mesma máquina de
-    # quem clicou — que é o caso do ClipForge local. Em Docker a tela mostra o caminho.
+    # quem clicou — que é o caso do CutClips local. Em Docker a tela mostra o caminho.
     if not hasattr(os, "startfile"):
         raise HTTPException(501, f"Abra a pasta manualmente: {folder.resolve()}")
     os.startfile(folder.resolve())  # noqa: S606

@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from clipforge import narrate
-from clipforge.narrate import Narration
-from clipforge.probe import probe
+from cutclips import narrate
+from cutclips.narrate import Narration
+from cutclips.probe import probe
 
 
 def payload(**over):

@@ -14,12 +14,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from clipforge.captions import build_ass, group_words  # noqa: E402
-from clipforge.config import Config  # noqa: E402
-from clipforge.probe import probe  # noqa: E402
-from clipforge.segment import build_sentences, fit_span, span_bounds  # noqa: E402
-from clipforge.select import select_clips  # noqa: E402
-from clipforge.transcribe import Transcript  # noqa: E402
+from cutclips.captions import build_ass, group_words  # noqa: E402
+from cutclips.config import Config  # noqa: E402
+from cutclips.probe import probe  # noqa: E402
+from cutclips.segment import build_sentences, fit_span, span_bounds  # noqa: E402
+from cutclips.select import select_clips  # noqa: E402
+from cutclips.transcribe import Transcript  # noqa: E402
 
 FIX = ROOT / "tests" / "fixtures"
 OUT = ROOT / "out"
@@ -72,7 +72,7 @@ def test_fit_span(sentences: list) -> None:
 def test_hallucination_guard(sentences: list) -> None:
     """O contrato central: IDs inventados pelo modelo não podem virar clipe."""
     print("\n[proteção contra alucinação]")
-    import clipforge.select as sel
+    import cutclips.select as sel
 
     n = len(sentences)
     poison = {"clips": [

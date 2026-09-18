@@ -745,8 +745,8 @@ function confirmDialog(title, text){
 
 function store(key, value){
   try {
-    if (value === undefined) return localStorage.getItem("clipforge:" + key);
-    localStorage.setItem("clipforge:" + key, value);
+    if (value === undefined) return localStorage.getItem("cutclips:" + key) ?? localStorage.getItem("clipforge:" + key); // clipforge: nome anterior
+    localStorage.setItem("cutclips:" + key, value);
   } catch { return null; }
 }
 

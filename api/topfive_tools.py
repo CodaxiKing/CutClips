@@ -13,9 +13,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 from api import db
 from api.topfive import _topfive_job
-from clipforge.config import STORAGE
-from clipforge.topfive import Entry, audio_path, file_digest
-from clipforge.probe import probe
+from cutclips.config import STORAGE
+from cutclips.topfive import Entry, audio_path, file_digest
+from cutclips.probe import probe
 
 router = APIRouter(prefix='/api/top5-tools', tags=['Top 5 review'])
 

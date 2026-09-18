@@ -13,12 +13,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY clipforge/ ./clipforge/
+COPY cutclips/ ./cutclips/
 COPY api/ ./api/
 COPY web/ ./web/
 
 ENV PYTHONUNBUFFERED=1 \
-    CLIPFORGE_STORAGE=/data \
+    CUTCLIPS_STORAGE=/data \
     HF_HOME=/models
 
 RUN mkdir -p /data /models
