@@ -37,6 +37,6 @@ if (-not $ready) {
     throw "O servidor não iniciou em $url. Verifique se a porta já está em uso."
 }
 
-Write-Host "ClipForge pronto em $url"
+Write-Host "CutClips pronto em $url"
 Write-Host "API PID: $($api.Id) | Worker PID: $($worker.Id)"
 if (-not $NoBrowser) { Start-Process $url }
