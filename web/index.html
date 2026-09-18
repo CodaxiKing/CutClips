@@ -1291,7 +1291,7 @@ function route(){
   $("channel").hidden = location.hash !== '#/channel';
   $("project").hidden = !currentId;
   $("dropOverlay").hidden = true;
-  const tab = currentId ? "projects" : ({"#/discover": "discover", "#/top5": "top5", "#/quiz": "quiz", "#/reaction": "reaction", "#/channel": "channel"})[location.hash] || "home";
+  const tab = currentId ? "projects" : ({"#/discover": "discover", "#/top5": "top5", "#/quiz": "quiz", "#/reaction": "reaction", "#/narration": "narration", "#/channel": "channel"})[location.hash] || "home";
   document.querySelectorAll("[data-nav]").forEach(a => a.dataset.nav === tab ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   if (currentId) {
     $("project").dataset.key = "";
