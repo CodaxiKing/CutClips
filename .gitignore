@@ -8,3 +8,5 @@ tests/fixtures/
 .tools/
 .pytest_cache/
 tests/artifacts/
+.venv-imported/
+pytest-cache-files-*/
