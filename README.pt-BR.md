@@ -4,7 +4,7 @@
 
 > **Gratuito, e proibida a venda.** O CutClips é totalmente gratuito, inclusive para ganhar dinheiro com os vídeos que você cria com ele. O que não é permitido é comercializar a plataforma: vender o software, cópias ou versões modificadas, ou serviços pagos baseados nele (como hospedá-lo para terceiros). Veja a [licença](#licença).
 
-> **Contribuições são bem-vindas.** Encontrou um bug ou tem uma ideia? Abra uma [issue](https://github.com/CodaxiKing/CutClips/issues). Quer enviar uma melhoria? Faça um fork do repositório, crie uma branch, rode os [testes](#testes) e abra um [pull request](https://github.com/CodaxiKing/CutClips/pulls) (PR). Ao contribuir, você concorda que sua contribuição fica sob a mesma [licença](#licença) do projeto.
+> **Contribuições são bem-vindas.** Encontrou um bug ou tem uma ideia? Abra uma [issue](https://github.com/CodaxiKing/CutClips/issues). Quer enviar uma melhoria? Faça um fork do repositório, crie uma branch, rode os [testes](#testes) e abra um [pull request](https://github.com/CodaxiKing/CutClips/pulls) (PR). Ao contribuir, você licencia sua contribuição ao mantenedor sob a licença MIT e continua dono dos direitos autorais dela; veja o [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Vídeo longo → clipes verticais → revisão → pacote de publicação → resultados.**
 
