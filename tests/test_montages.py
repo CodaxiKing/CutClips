@@ -9,13 +9,13 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api import db, main, studio, worker
-from clipforge import backgrounds, montage, quiz_ai, quiz_bank
-from clipforge import quiz as qz
-from clipforge import reaction as rc
-from clipforge.config import Config
-from clipforge.montage import ffmpeg
-from clipforge.probe import probe
-from clipforge.select import ProviderError
+from cutclips import backgrounds, insights, montage, quiz_ai, quiz_bank
+from cutclips import quiz as qz
+from cutclips import reaction as rc
+from cutclips.config import Config
+from cutclips.montage import ffmpeg
+from cutclips.probe import probe
+from cutclips.select import ProviderError
 
 YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 TT = "https://www.tiktok.com/@test/video/7000000000000000001"
@@ -40,7 +40,7 @@ def reaction_payload(**update):
 @pytest.fixture(autouse=True)
 def isolated_caches(tmp_path, monkeypatch):
     # Sons sintetizados vão para a pasta do teste, nunca para o storage do projeto.
-    from clipforge import sounds
+    from cutclips import sounds
     monkeypatch.setattr(sounds, 'SOUND_DIR', tmp_path / 'sons')
 
 
@@ -249,7 +249,7 @@ def test_real_ffmpeg_reaction_mixed_sources(tmp_path):
 
 
 def test_real_ffmpeg_side_by_side_with_captions(tmp_path, monkeypatch):
-    from clipforge.transcribe import Transcript, Word
+    from cutclips.transcribe import Transcript, Word
     a, b = _sources(tmp_path)
     heard = []
 
@@ -279,7 +279,7 @@ def test_real_ffmpeg_side_by_side_with_captions(tmp_path, monkeypatch):
 
 
 def test_captions_without_speech_only_warn(tmp_path, monkeypatch):
-    from clipforge.transcribe import Transcript
+    from cutclips.transcribe import Transcript
     a, b = _sources(tmp_path)
     monkeypatch.setattr(rc, 'transcribe_side', lambda clip, cache: Transcript("pt", 2, []))
     spec = rc.Reaction.model_validate(reaction_payload(captions="top"))
@@ -297,6 +297,9 @@ def fake_llm(generated, review=None):
     calls = []
 
     def provider(system, user, cfg):
+        # A revisão de publicação roda no fim de cada vídeo; não é pedido de perguntas.
+        if system == insights.REVIEW_SYSTEM:
+            return '{"videos": []}'
         calls.append((system, user))
         if system == quiz_ai.REVIEW_SYSTEM:
             count = user.count('Pergunta:')
@@ -568,10 +571,10 @@ def test_suspense_sets_where_the_countdown_starts(tmp_path):
 
 
 def test_caches_work_with_relative_storage(tmp_path, monkeypatch):
-    # O .env padrão usa CLIPFORGE_STORAGE=./storage: caminho relativo não pode
+    # O .env padrão usa CUTCLIPS_STORAGE=./storage: caminho relativo não pode
     # quebrar quando o ffmpeg roda dentro da pasta de cache.
     from pathlib import Path
-    from clipforge import sounds
+    from cutclips import sounds
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sounds, 'SOUND_DIR', Path('storage/cache/sons'))
     monkeypatch.setattr(backgrounds, 'BACKGROUND_DIR', Path('storage/fundos-quiz'))
@@ -603,7 +606,7 @@ def test_reveal_script_animates_and_can_be_turned_off(tmp_path):
 
 
 def test_real_ffmpeg_reveal_sound_lands_on_each_answer(tmp_path):
-    from clipforge import sounds
+    from cutclips import sounds
     # Fundo mudo e sem música: todo som do vídeo vem da revelação.
     spec = qz.Quiz.model_validate(quiz_payload(suspense=2, reveal=1, reveal_sound="ding"))
     result = qz.render_quiz(spec, None, tmp_path, width=270, height=480)

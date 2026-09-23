@@ -6,15 +6,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-os.environ["CLIPFORGE_STORAGE"] = str(ROOT / "tests/artifacts/ui-storage")
+os.environ["CUTCLIPS_STORAGE"] = str(ROOT / "tests/artifacts/ui-storage")
 local_ffmpeg = ROOT / ".venv/Lib/site-packages/static_ffmpeg/bin/win32"
 if local_ffmpeg.is_dir():
     os.environ["PATH"] = str(local_ffmpeg) + os.pathsep + os.environ["PATH"]
 
 from api import db
-from clipforge.config import Config
-from clipforge.editor import render_clip, atomic_json
-from clipforge.transcribe import Transcript, Word
+from cutclips.config import Config
+from cutclips.editor import render_clip, atomic_json
+from cutclips.transcribe import Transcript, Word
 
 if "--worker" in sys.argv:
     from api.worker import main
@@ -27,7 +27,7 @@ if not db.list_jobs():
     if not sample.is_file():
         raise SystemExit("Run the pytest suite with --basetemp=tests/artifacts/pytest-run2 first")
     job = db.create_job("sample.mp4", title="Demonstração de revisão", settings={"llm_provider":"heuristic", "preset":"ultrafast"})
-    directory = Path(os.environ["CLIPFORGE_STORAGE"]) / "jobs" / job
+    directory = Path(os.environ["CUTCLIPS_STORAGE"]) / "jobs" / job
     (directory / "source").mkdir(parents=True)
     shutil.copyfile(sample, directory / "source/sample.mp4")
     words = [Word(0.1,0.5,"Um"),Word(0.6,1,"teste",0.3),Word(1.1,1.5,"de"),Word(1.6,2,"edição."),

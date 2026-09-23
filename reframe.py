@@ -72,7 +72,7 @@ def _detectors() -> dict:
     cv2 = _cv2()
     haar = cv2.data.haarcascades
     yunet = None
-    model = os.getenv("CLIPFORGE_FACE_MODEL", "")
+    model = os.getenv("CUTCLIPS_FACE_MODEL", "")
     if model and Path(model).exists() and hasattr(cv2, "FaceDetectorYN"):
         try:
             yunet = cv2.FaceDetectorYN.create(model, "", (320, 320), 0.6, 0.3, 5000)
@@ -125,7 +125,7 @@ def detect_faces(gray: np.ndarray, bgr: np.ndarray | None = None) -> list[tuple[
     Cascatas frontais perdem quem vira o rosto para o interlocutor — o caso mais
     comum em podcast e entrevista, e a causa clássica do enquadramento que
     "esquece" o convidado. O perfil é procurado nos dois sentidos e as caixas são
-    fundidas. Com CLIPFORGE_FACE_MODEL apontando para o YuNet (.onnx), a detecção
+    fundidas. Com CUTCLIPS_FACE_MODEL apontando para o YuNet (.onnx), a detecção
     fica bem melhor e as cascatas viram só a rede de segurança.
     """
     cv2 = _cv2()

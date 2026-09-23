@@ -40,8 +40,8 @@ def _ocr(frame: np.ndarray) -> list[dict]:
 
 
 def _object_model():
-    weights=os.getenv("CLIPFORGE_OBJECT_MODEL"); config=os.getenv("CLIPFORGE_OBJECT_CONFIG")
-    labels_path=os.getenv("CLIPFORGE_OBJECT_LABELS")
+    weights=os.getenv("CUTCLIPS_OBJECT_MODEL"); config=os.getenv("CUTCLIPS_OBJECT_CONFIG")
+    labels_path=os.getenv("CUTCLIPS_OBJECT_LABELS")
     if not weights or not Path(weights).exists(): return None,[]
     import cv2
     model=cv2.dnn_DetectionModel(weights,config or "")

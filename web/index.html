@@ -17,7 +17,7 @@
 <link rel="stylesheet" href="/assets/discover.css">
 <link rel="stylesheet" href="/assets/montages.css">
 <link rel="stylesheet" href="/assets/theme.css">
-<title>ClipForge</title>
+<title>CutClips</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23fff'/%3E%3Cpath d='M12 9.5v13l11-6.5z' fill='%23000'/%3E%3C/svg%3E">
 <style>
   :root{
@@ -231,6 +231,28 @@
   .label{font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.07em;font-weight:600;margin-bottom:7px}
   .hook{margin:0;font-size:16px;line-height:1.55;border-left:3px solid #fff;padding-left:14px}
   .reason{margin:0;color:var(--muted);font-size:14.5px}
+  .insights{border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;background:rgba(255,255,255,.015)}
+  .insights>summary{cursor:pointer;font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px;list-style:none;margin-bottom:12px}
+  .insights>summary::-webkit-details-marker{display:none}
+  .insights>summary svg{width:16px;height:16px;flex:none;transition:transform .2s}
+  .insights[open]>summary svg{transform:rotate(90deg)}
+  .insights .label{margin-top:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .eng-list{display:grid;gap:7px}
+  .eng{display:grid;grid-template-columns:78px 1fr 34px;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+  .eng i{height:6px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden}
+  .eng b{display:block;height:100%;border-radius:99px;background:var(--mid)}
+  .eng em{font-style:normal;text-align:right;color:var(--fg);font-variant-numeric:tabular-nums}
+  .risk-list,.title-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  .risk-list li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;font-size:13.5px}
+  .risk-list p{margin:3px 0 0;color:var(--muted);line-height:1.5}
+  .risk-list q{display:block;margin-top:4px;color:var(--dim);font-style:italic}
+  .risk-badge{font-size:11px;font-weight:650;padding:3px 8px;border-radius:99px;border:1px solid currentColor;white-space:nowrap;text-transform:none;letter-spacing:0}
+  .risk-baixo .risk-badge,.risk-badge.risk-baixo{color:var(--hi)}
+  .risk-medio .risk-badge,.risk-badge.risk-medio{color:var(--mid)}
+  .risk-alto .risk-badge,.risk-badge.risk-alto{color:var(--err)}
+  .risk-na .risk-badge{color:var(--dim)}
+  .title-list li{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px}
+  .ins-note{margin:10px 0 0;font-size:12.5px;color:var(--dim);line-height:1.5}
   details.transcript{border-top:1px solid var(--line);padding-top:14px}
   details.transcript summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;
     font-size:14px;font-weight:600;color:var(--muted);user-select:none}
@@ -299,9 +321,9 @@
   <div class="wrap">
     <a class="brand" href="#/">
       <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M12 9.5v13l11-6.5z" fill="#000"/></svg>
-      ClipForge
+      CutClips
     </a>
-    <div class="nav-links"><a href="#/" data-nav="home">Início</a><a href="#/" data-scroll="projetos" data-nav="projects">Projetos</a><a href="#/top5" data-nav="top5">Ranking</a><a href="#/quiz" data-nav="quiz">Quiz</a><a href="#/reaction" data-nav="reaction">Reação</a><a href="#/narration" data-nav="narration">Narrado</a><a href="#/channel" data-nav="channel">Análise do canal</a></div>
+    <div class="nav-links"><a href="#/" data-nav="home">Início</a><a href="#/" data-scroll="projetos" data-nav="projects">Projetos</a><a href="#/top5" data-nav="top5">Ranking</a><a href="#/quiz" data-nav="quiz">Quiz</a><a href="#/reaction" data-nav="reaction">Reação</a><a href="#/narration" data-nav="narration">Narrado</a><a href="#/channel" data-nav="channel">YouTube</a></div>
     <span class="status"><i class="dot" id="healthDot"></i><span id="health">conectando…</span></span>
   </div>
 </nav>
@@ -318,7 +340,7 @@
     <div id="ytWarnings" aria-live="polite"></div>
     <article class="yt-panel yt-next"><div><span class="yt-kicker">PRÓXIMOS PASSOS</span><h3>Transforme sinais em decisões.</h3></div><div id="ytRecommendations"><p class="yt-muted">As recomendações serão baseadas no seu desempenho, comparado ao período anterior.</p></div></article>
     <article class="yt-panel yt-videos"><div class="yt-panel-heading"><div><span class="yt-kicker">CONTEÚDO</span><h3>Vídeos que puxam o canal</h3></div><span class="yt-muted">Top 10 do período</span></div><div id="ytVideos" class="yt-empty"><p>Seus vídeos mais assistidos aparecerão após a conexão.</p></div></article>
-    <details class="yt-public"><summary>Analisar outro canal pelo link público</summary><p class="yt-muted">A consulta pública é independente do canal conectado e não tem acesso a métricas privadas.</p><form id="channelForm"><input name="url" type="url" placeholder="https://www.youtube.com/@canal" aria-label="Link público do canal" required maxlength="500"><select name="format" aria-label="Formato"><option value="videos">Vídeos</option><option value="shorts">Shorts</option></select><button class="btn btn-outline" type="submit">Consultar</button></form><div id="channelResult" aria-live="polite"></div></details>
+    <div class="yt-toolbar"><div><h2>Outras análises</h2><p>Não dependem da conexão: um canal qualquer pelo link público, ou os números que você copiar do Studio.</p></div></div><div class="yt-grid yt-tools"><article class="yt-panel yt-tool"><span class="yt-kicker">CANAL PÚBLICO</span><h3>Analisar outro canal pelo link</h3><p class="yt-muted">Amostra de até 20 vídeos, sem acesso a métricas privadas. Independente do canal conectado.</p><form id="channelForm"><input name="url" type="url" placeholder="https://www.youtube.com/@canal" aria-label="Link público do canal" required maxlength="500"><select name="format" aria-label="Formato"><option value="videos">Vídeos</option><option value="shorts">Shorts</option></select><button class="btn btn-outline" type="submit">Consultar</button></form><div id="channelResult" class="yt-result" aria-live="polite"></div></article><article class="yt-panel yt-tool"><span class="yt-kicker">DIAGNÓSTICO MANUAL</span><h3>Números do Studio, lidos com cuidado</h3><p class="yt-muted">Para quando o canal não está conectado. Preencha o que tiver; campo vazio fica fora da análise.</p><form id="diagnoseForm"><div class="yt-fields"><span></span><span class="yt-col">PERÍODO ATUAL</span><span class="yt-col">ANTERIOR</span><span>Impressões</span><input name="impressions" type="number" min="0" step="1" inputmode="decimal" aria-label="Impressões, período atual"><input name="previous_impressions" type="number" min="0" step="1" inputmode="decimal" aria-label="Impressões, período anterior"><span>CTR (%)</span><input name="ctr" type="number" min="0" max="100" step="0.1" inputmode="decimal" aria-label="CTR (%), período atual"><input name="previous_ctr" type="number" min="0" max="100" step="0.1" inputmode="decimal" aria-label="CTR (%), período anterior"><span>Média assistida (%)</span><input name="retention" type="number" min="0" max="1000" step="0.1" inputmode="decimal" aria-label="Média assistida (%), período atual"><input name="previous_retention" type="number" min="0" max="1000" step="0.1" inputmode="decimal" aria-label="Média assistida (%), período anterior"><span>Views de recomendações</span><input name="recommended_views" type="number" min="0" step="1" inputmode="numeric" aria-label="Visualizações vindas de recomendações" class="yt-span2"></div><button class="btn btn-outline" type="submit">Analisar números</button></form><div id="diagnoseResult" class="yt-result" aria-live="polite"></div></article></div>
     <p class="yt-footnote" id="ytNote">Métricas oficiais, quando disponíveis. Sem estimativas de alcance inventadas ou garantia de recomendações. <a href="https://developers.google.com/youtube/reporting/v1/reports/channel_reports#reach-reports" target="_blank" rel="noopener">Sobre os relatórios de alcance ↗</a></p>
   </section>
   <section id="discover" hidden></section>
@@ -495,7 +517,7 @@
     <div class="hero">
       <p class="eyebrow">Clipes com IA · roda na sua máquina</p>
       <h1 class="big" id="heroTitle">Seus melhores momentos, prontos para virar clipes. <span>Crie, revise e publique.</span></h1>
-      <p class="lede" id="heroLede">Cole um link do YouTube ou envie um arquivo. O ClipForge transcreve, encontra os melhores
+      <p class="lede" id="heroLede">Cole um link do YouTube ou envie um arquivo. O CutClips transcreve, encontra os melhores
         momentos, reenquadra em 9:16 seguindo quem fala e queima a legenda.</p>
 
       <div class="modes" role="tablist" aria-label="Tipo de projeto">
@@ -522,7 +544,7 @@
         </button>
       </div>
       <p class="hint" id="urlHint" hidden>Só links do YouTube (youtube.com ou youtu.be)</p>
-      <p class="hint note" id="liveHint" hidden>VOD, clipe ou transmissão da Twitch, Kick e YouTube. Em transmissão ao vivo o ClipForge grava uma janela a partir de agora — a gravação roda em tempo real.</p>
+      <p class="hint note" id="liveHint" hidden>VOD, clipe ou transmissão da Twitch, Kick e YouTube. Em transmissão ao vivo o CutClips grava uma janela a partir de agora — a gravação roda em tempo real.</p>
       <input type="file" id="file" accept="video/*" hidden>
 
       <div class="config" id="config" hidden>
@@ -622,7 +644,7 @@
   <section id="project" class="page" hidden></section>
 </main>
 
-<footer><div class="wrap">ClipForge · self-hosted · seus vídeos não saem da sua máquina (exceto o texto enviado à IA escolhida)</div></footer>
+<footer><div class="wrap">CutClips · self-hosted · seus vídeos não saem da sua máquina (exceto o texto enviado à IA escolhida)</div></footer>
 
 <div class="drop-overlay" id="dropOverlay" hidden>
   <div>
@@ -745,8 +767,8 @@ function confirmDialog(title, text){
 
 function store(key, value){
   try {
-    if (value === undefined) return localStorage.getItem("clipforge:" + key);
-    localStorage.setItem("clipforge:" + key, value);
+    if (value === undefined) return localStorage.getItem("cutclips:" + key) ?? localStorage.getItem("clipforge:" + key); // clipforge: nome anterior
+    localStorage.setItem("cutclips:" + key, value);
   } catch { return null; }
 }
 
@@ -789,8 +811,8 @@ function setMode(next){
     ? "Os melhores momentos da sua live, prontos para publicar. <span>Cole o link e baixe o corte.</span>"
     : "Seus melhores momentos, prontos para virar clipes. <span>Crie, revise e publique.</span>";
   $("heroLede").textContent = live
-    ? "Cole o link de uma live, VOD ou clipe da Twitch, Kick ou YouTube. O ClipForge encontra os picos da transmissão, transcreve só esses trechos, corta o tempo morto, legenda e entrega o vídeo pronto para baixar."
-    : "Cole um link do YouTube ou envie um arquivo. O ClipForge transcreve, encontra os melhores momentos, reenquadra em 9:16 seguindo quem fala e queima a legenda.";
+    ? "Cole o link de uma live, VOD ou clipe da Twitch, Kick ou YouTube. O CutClips encontra os picos da transmissão, transcreve só esses trechos, corta o tempo morto, legenda e entrega o vídeo pronto para baixar."
+    : "Cole um link do YouTube ou envie um arquivo. O CutClips transcreve, encontra os melhores momentos, reenquadra em 9:16 seguindo quem fala e queima a legenda.";
   $("url").placeholder = live ? "Cole o link da live, VOD ou clipe" : "Cole um link do YouTube";
   $("go").textContent = live ? "Gerar corte" : "Gerar clipes";
   store("mode", mode);
@@ -1061,11 +1083,39 @@ function ring(score){
     </svg><b>${s}</b></div>` };
 }
 const SCORE_LABEL = { hi: "Boa avaliação editorial", mid: "Revisar os detalhes", lo: "Revisão recomendada" };
+const RISK_LABEL = { baixo: "Baixo", medio: "Médio", alto: "Alto" };
+
+// Estimativa e nível de risco, nunca probabilidade: o YouTube não publica como decide alcance ou punição.
+function insightsPanel(c, ins){
+  const bars = [["gancho", "Gancho"], ["retencao", "Retenção"], ["emocao", "Emoção"]].map(([key, label]) => {
+    const v = ins.engagement?.[key];
+    return `<div class="eng"><span>${label}</span><i><b style="width:${v ?? 0}%"></b></i><em>${v ?? "—"}</em></div>`;
+  }).join("");
+  const risk = ins.risk || { level: "baixo", items: [] };
+  const partial = risk.items.some(r => !r.level);
+  const items = risk.items.map(r => `<li class="risk-${r.level || "na"}">
+      <span class="risk-badge">${r.level ? RISK_LABEL[r.level] : "Não analisado"}</span>
+      <div><strong>${esc(r.label)}</strong>${r.reasons.map(x => `<p>${esc(x)}</p>`).join("")}${(r.quotes || []).map(q => `<q>${esc(q)}</q>`).join("")}</div>
+    </li>`).join("");
+  const titles = (ins.titles || []).map(t => `<li><span>${esc(t)}</span><button class="btn btn-outline btn-sm" data-copy="${esc(t)}">${ICON.copy}Copiar</button></li>`).join("");
+  const stale = c.editorial_stale || (ins.revision ?? 0) !== (c.revision ?? 0);
+  return `<details class="insights" open>
+    <summary>${ICON.chevron}Análise antes de publicar</summary>
+    ${stale ? `<p class="ins-note">Análise feita na versão ${ins.revision ?? 0}, antes da edição.</p>` : ""}
+    <div class="label">Engajamento estimado</div>
+    <div class="eng-list">${bars}</div>
+    <div class="label">Risco pelas diretrizes do YouTube <span class="risk-badge risk-${risk.level}">${RISK_LABEL[risk.level] || "—"}${partial ? " · parcial" : ""}</span></div>
+    ${items ? `<ul class="risk-list">${items}</ul>` : `<p class="ins-note">Nenhum alerta encontrado.</p>`}
+    ${titles ? `<div class="label">Títulos sugeridos</div><ul class="title-list">${titles}</ul>` : ""}
+    <p class="ins-note">Estimativa, não previsão: o YouTube não publica como decide alcance ou punição.${ins.note ? " " + esc(ins.note) : ""}</p>
+  </details>`;
+}
 
 function clipCard(id, c){
   const src = `/api/jobs/${id}/clips/${encodeURIComponent(c.file)}`;
   const poster = c.thumbnail ? `/api/jobs/${id}/clips/${encodeURIComponent(c.thumbnail)}` : "";
-  const sc = ring(c.score);
+  const ins = c.insights;
+  const sc = ring(ins ? ins.potential : c.score);
   return `
   <article class="clip" data-clip-index="${c.index}">
     <div class="clip-video"><video src="${src}" poster="${poster}" controls preload="none" playsinline></video></div>
@@ -1074,10 +1124,11 @@ function clipCard(id, c){
       <div class="score-row">
         ${sc.html}
         <div>
-          <div class="score-title">Avaliação editorial <span>/100</span></div>
-          <div class="score-sub ${sc.cls}">${SCORE_LABEL[sc.cls]}</div>
+          <div class="score-title">${ins ? "Potencial de viralização" : "Avaliação editorial"} <span>/100</span></div>
+          <div class="score-sub ${sc.cls}">${ins ? `estimativa · ${esc(ins.potential_basis)}` : SCORE_LABEL[sc.cls]}</div>
         </div>
       </div>
+      ${ins ? insightsPanel(c, ins) : ""}
       <dl class="facts">
         <div><dt>Duração</dt><dd>${num(c.actual_duration)}s</dd></div>
         <div><dt>Trecho</dt><dd>${clock(c.source_start)} – ${clock(c.source_end)}</dd></div>
@@ -1110,7 +1161,7 @@ async function renderProject(){
   const j = await r.json();
   window.studioJob = j;
   const name = j.title || (j.source_url ? "Vídeo do YouTube" : j.filename);
-  document.title = `${name} · ClipForge`;
+  document.title = `${name} · CutClips`;
   if (j.settings?.kind === "top5" && window.TopFive) {
     if (j.status === "error") window.TopFive.renderError(j, box, back);
     else window.TopFive.renderProject(j, box, back);
@@ -1240,14 +1291,14 @@ function route(){
   $("channel").hidden = location.hash !== '#/channel';
   $("project").hidden = !currentId;
   $("dropOverlay").hidden = true;
-  const tab = currentId ? "projects" : ({"#/discover": "discover", "#/top5": "top5", "#/quiz": "quiz", "#/reaction": "reaction", "#/channel": "channel"})[location.hash] || "home";
+  const tab = currentId ? "projects" : ({"#/discover": "discover", "#/top5": "top5", "#/quiz": "quiz", "#/reaction": "reaction", "#/narration": "narration", "#/channel": "channel"})[location.hash] || "home";
   document.querySelectorAll("[data-nav]").forEach(a => a.dataset.nav === tab ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   if (currentId) {
     $("project").dataset.key = "";
     $("project").innerHTML = "";
     renderProject();
   } else {
-    document.title = "ClipForge";
+    document.title = "CutClips";
   }
   window.scrollTo(0, 0);
 }

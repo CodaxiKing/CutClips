@@ -7,25 +7,25 @@ from types import SimpleNamespace
 import pytest
 import numpy as np
 
-from clipforge.boundaries import refine
-from clipforge.captions import build_ass, build_srt, _ts
-from clipforge.config import Config
-from clipforge.editor import render_clip
-from clipforge.probe import probe
-from clipforge.reframe import (_camera_path, _fill_and_smooth, _plausible,
+from cutclips.boundaries import refine
+from cutclips.captions import build_ass, build_srt, _ts
+from cutclips.config import Config
+from cutclips.editor import render_clip
+from cutclips.probe import probe
+from cutclips.reframe import (_camera_path, _fill_and_smooth, _plausible,
                                _saliency_centers, _targets_from_index)
-from clipforge.segment import Sentence, build_sentences, transcript_outline
-from clipforge.select import select_clips
-from clipforge.transcribe import Transcript, Word, cache_signature
-from clipforge.transcribe import _correct_names
-from clipforge.signals import opening_signals
-from clipforge.editing import edit_ranges, remap_words
-import clipforge.select as selector
-import clipforge.transcribe as transcription
-import clipforge.download as downloader
-import clipforge.prospect as prospect
-import clipforge.render as renderer
-from clipforge.run import process
+from cutclips.segment import Sentence, build_sentences, transcript_outline
+from cutclips.select import select_clips
+from cutclips.transcribe import Transcript, Word, cache_signature
+from cutclips.transcribe import _correct_names
+from cutclips.signals import opening_signals
+from cutclips.editing import edit_ranges, remap_words
+import cutclips.select as selector
+import cutclips.transcribe as transcription
+import cutclips.download as downloader
+import cutclips.prospect as prospect
+import cutclips.render as renderer
+from cutclips.run import process
 
 
 def test_caption_fast_words_do_not_overlap(tmp_path):
@@ -163,7 +163,7 @@ def test_camera_pan_is_dense_and_speed_limited():
 
 
 def test_decoding_settings_follow_the_device_and_stay_overridable():
-    from clipforge.transcribe import _beam_size, _decode_threads
+    from cutclips.transcribe import _beam_size, _decode_threads
     cpu = Config()
     # Sem GPU a busca em feixe domina o tempo; com GPU ela é barata.
     assert _beam_size("cpu", cpu) == 2 and _beam_size("cuda", cpu) == 5
@@ -175,7 +175,7 @@ def test_decoding_settings_follow_the_device_and_stay_overridable():
 
 
 def test_transcript_cache_invalidates_when_the_beam_changes(tmp_path):
-    from clipforge.transcribe import cache_signature
+    from cutclips.transcribe import cache_signature
     video = tmp_path / "v.mp4"
     video.write_bytes(b"x" * 64)
     a = cache_signature(video, Config(whisper_beam=0))
@@ -185,7 +185,7 @@ def test_transcript_cache_invalidates_when_the_beam_changes(tmp_path):
 
 def test_missing_api_key_says_what_to_do_instead_of_a_class_name(transcript, monkeypatch):
     """Foi uma chave vazia que manteve a seleção por IA desligada sem ninguém ver."""
-    from clipforge.diagnostics import explain
+    from cutclips.diagnostics import explain
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     plans = select_clips(build_sentences(transcript),
                          cfg=Config(llm_provider="anthropic", min_duration=0.5, max_duration=5))
@@ -197,7 +197,7 @@ def test_missing_api_key_says_what_to_do_instead_of_a_class_name(transcript, mon
 
 
 def test_explain_curates_known_failures_and_never_echoes_the_raw_message():
-    from clipforge.diagnostics import explain
+    from cutclips.diagnostics import explain
     import json
     assert "crédito" in explain(Exception("rate_limit_error: quota exceeded"))
     assert "recusada" in explain(Exception("AuthenticationError: invalid api key"))
@@ -215,8 +215,8 @@ def _observations(pairs, samples=40):
 
 
 def test_two_people_too_far_apart_become_a_split_screen():
-    from clipforge.reframe import _split_decision, split_tile_width
-    from clipforge.probe import MediaInfo
+    from cutclips.reframe import _split_decision, split_tile_width
+    from cutclips.probe import MediaInfo
     cfg = Config()
     info = MediaInfo(Path("x.mp4"), 60.0, 1920, 1080, 30.0, True)
     # Amostra tem 480 px de largura para 1920 na origem: escala 4.
@@ -231,23 +231,23 @@ def test_two_people_too_far_apart_become_a_split_screen():
 
 
 def test_two_people_that_share_a_frame_keep_one_camera():
-    from clipforge.reframe import _split_decision
-    from clipforge.probe import MediaInfo
+    from cutclips.reframe import _split_decision
+    from cutclips.probe import MediaInfo
     info = MediaInfo(Path("x.mp4"), 60.0, 1920, 1080, 30.0, True)
     close = _observations([(230.0, 40.0), (260.0, 40.0)])
     assert _split_decision(close, 4.0, 608, info, Config()) is None
 
 
 def test_a_passer_by_does_not_trigger_the_split():
-    from clipforge.reframe import _split_decision
-    from clipforge.probe import MediaInfo
+    from cutclips.reframe import _split_decision
+    from cutclips.probe import MediaInfo
     info = MediaInfo(Path("x.mp4"), 60.0, 1920, 1080, 30.0, True)
     samples = _observations([(240.0, 40.0)], samples=36) + _observations([(60.0, 40.0), (420.0, 40.0)], samples=4)
     assert _split_decision(samples, 4.0, 608, info, Config()) is None
 
 
 def test_a_wide_shot_zooms_in_without_destroying_sharpness():
-    from clipforge.reframe import _zoom_factor
+    from cutclips.reframe import _zoom_factor
     cfg = Config()
     # Rosto de 12 px numa amostra escala 4 = 48 px numa altura de recorte de 1080.
     small = _zoom_factor(_observations([(240.0, 12.0)]), 4.0, 1080, cfg)
@@ -386,8 +386,8 @@ def test_prospect_falls_back_to_sampling_a_silent_stream():
 
 
 def test_horizontal_orientation_keeps_the_whole_frame():
-    from clipforge.config import apply_orientation
-    from clipforge.reframe import crop_geometry
+    from cutclips.config import apply_orientation
+    from cutclips.reframe import crop_geometry
     cfg = apply_orientation(Config(), "horizontal")
     cfg.validate()
     info = SimpleNamespace(width=1920, height=1080)
@@ -398,7 +398,7 @@ def test_horizontal_orientation_keeps_the_whole_frame():
 
 
 def test_emphasis_marks_the_loudest_moments_and_skips_cut_ranges():
-    from clipforge.editor import energy_accents
+    from cutclips.editor import energy_accents
     index = {"audio_words": [{"start": float(i), "end": i + .4, "energy": 0.3} for i in range(40)]}
     for i, value in ((5, 0.99), (6, 0.98), (20, 0.97), (33, 0.96)):
         index["audio_words"][i]["energy"] = value
@@ -413,9 +413,9 @@ def test_emphasis_marks_the_loudest_moments_and_skips_cut_ranges():
 def test_live_pipeline_prospects_before_transcribing(tmp_path, monkeypatch):
     """Transmissão longa: garimpa, transcreve só os picos e entrega 16:9."""
     import subprocess
-    import clipforge.run as runner
-    from clipforge.config import apply_orientation
-    from clipforge.transcribe import Transcript, Word
+    import cutclips.run as runner
+    from cutclips.config import apply_orientation
+    from cutclips.transcribe import Transcript, Word
 
     video = tmp_path / "live.mp4"
     bursts = "+".join(f"between(t,{a},{a + 6})" for a in (60, 130))

@@ -8,18 +8,18 @@ services:
       - whisper-models:/models
     env_file: [.env]
     environment:
-      CLIPFORGE_STORAGE: /data
+      CUTCLIPS_STORAGE: /data
     restart: unless-stopped
 
   worker:
     build: .
-    command: ["python", "-m", "api.worker"]
+    command: ["python", "-P", "scripts/launch.py", "worker"]
     volumes:
       - ./storage:/data
       - whisper-models:/models
     env_file: [.env]
     environment:
-      CLIPFORGE_STORAGE: /data
+      CUTCLIPS_STORAGE: /data
     restart: unless-stopped
     # Escalar = mais workers: docker compose up -d --scale worker=3
     # Com GPU NVIDIA, descomente:

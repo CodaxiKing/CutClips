@@ -24,7 +24,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from clipforge.config import STORAGE
+from cutclips.config import STORAGE
 
 router = APIRouter(prefix="/api/trending", tags=["Descobrir"])
 

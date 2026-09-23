@@ -24,7 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import db, main, studio
-from clipforge.transcribe import Transcript, Word
+from cutclips.transcribe import Transcript, Word
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_FFMPEG = ROOT / ".venv/Lib/site-packages/static_ffmpeg/bin/win32"
@@ -56,7 +56,7 @@ def transcript():
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB_PATH", tmp_path / "clipforge.db")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "cutclips.db")
     monkeypatch.setattr(main, "JOBS", tmp_path / "jobs")
     monkeypatch.setattr(studio, "JOBS", tmp_path / "jobs")
     with TestClient(main.app) as client:

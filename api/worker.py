@@ -18,20 +18,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from api import db  # noqa: E402
-from clipforge.config import STORAGE, Config, apply_orientation  # noqa: E402
-from clipforge.download import download, describe_url  # noqa: E402
-from clipforge.run import process  # noqa: E402
-from clipforge.editor import render_clip, atomic_json, EDIT_FIELDS
-from clipforge.transcribe import Transcript
-from clipforge.transcribe import transcribe
-from clipforge.segment import build_sentences
-from clipforge.select import select_clips
-from clipforge.media_index import build_media_index
-from clipforge.signals import visual_timeline
-from clipforge.probe import probe
+from cutclips.config import STORAGE, Config, apply_orientation  # noqa: E402
+from cutclips.download import download, describe_url  # noqa: E402
+from cutclips.run import process  # noqa: E402
+from cutclips.editor import render_clip, atomic_json, EDIT_FIELDS
+from cutclips.transcribe import Transcript
+from cutclips.transcribe import transcribe
+from cutclips.segment import build_sentences
+from cutclips.select import select_clips
+from cutclips.media_index import build_media_index
+from cutclips.signals import visual_timeline
+from cutclips.probe import probe
 from concurrent.futures import ThreadPoolExecutor
 
-POLL_SECONDS = float(os.getenv("CLIPFORGE_POLL", "2"))
+POLL_SECONDS = float(os.getenv("CUTCLIPS_POLL", "2"))
 _running = True
 
 
@@ -60,7 +60,7 @@ def build_config(settings: dict) -> Config:
                 setattr(cfg, key, value)
     if settings.get("orientation"):
         apply_orientation(cfg, str(settings["orientation"]))
-    if not settings.get("llm_model") and cfg.llm_provider != os.getenv("CLIPFORGE_LLM_PROVIDER", "anthropic"):
+    if not settings.get("llm_model") and cfg.llm_provider != os.getenv("CUTCLIPS_LLM_PROVIDER", "anthropic"):
         cfg.llm_model = ""
     cfg.validate()
     return cfg
@@ -182,7 +182,7 @@ def run_pipeline_stage(task: dict) -> None:
         job=db.get_job(job_id)
         if not job: raise ValueError("projeto não encontrado")
         if task["stage"] in db.MONTAGES:
-            from clipforge import narrate, quiz, reaction, topfive
+            from cutclips import narrate, quiz, reaction, topfive
             directory = Path(STORAGE)/"jobs"/job_id
             progress = lambda s,p:db.set_progress(job_id,s,p)
             if task["stage"] == "quiz":
@@ -200,6 +200,9 @@ def run_pipeline_stage(task: dict) -> None:
             else:
                 process_montage = {"top5": topfive.process_topfive, "reaction": reaction.process_reaction}[task["stage"]]
                 manifest = process_montage(job["settings"],directory,progress)
+            from cutclips.insights import annotate
+            annotate(manifest, directory, build_config(job["settings"]), settings=job["settings"],
+                     context=job.get("title") or "")
             if db.finish_montage(task,manifest):
                 atomic_json(directory/"manifest.json",manifest)
             return

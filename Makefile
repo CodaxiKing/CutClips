@@ -19,4 +19,4 @@ test:
 	python -m pytest -q
 
 clean:
-	rm -rf out storage/jobs storage/clipforge.db*
+	rm -rf out storage/jobs storage/cutclips.db* storage/clipforge.db*

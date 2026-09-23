@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const $=id=>document.getElementById(id), key='clipforge.discover.v1';
+  const $=id=>document.getElementById(id), key='cutclips.discover.v1', legacyKey='clipforge.discover.v1'; // chave do nome anterior, para não perder candidatos salvos
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   function videoURL(raw){
     const u=new URL(raw.trim());
@@ -9,7 +9,7 @@
     u.hash='';u.search='';return u.href;
   }
   let candidates=[],loadError='';
-  try{const saved=JSON.parse(localStorage.getItem(key)||'[]');if(!Array.isArray(saved))throw Error();candidates=saved.slice(0,200).filter(e=>{try{return typeof e.name==='string'&&e.name.length<=32&&videoURL(e.url)===e.url;}catch{return false;}});}catch{loadError='Não foi possível recuperar a lista salva neste navegador.';}
+  try{const saved=JSON.parse(localStorage.getItem(key)??localStorage.getItem(legacyKey)??'[]');if(!Array.isArray(saved))throw Error();candidates=saved.slice(0,200).filter(e=>{try{return typeof e.name==='string'&&e.name.length<=32&&videoURL(e.url)===e.url;}catch{return false;}});}catch{loadError='Não foi possível recuperar a lista salva neste navegador.';}
   const selected=new Set();
   const nav=document.createElement('a');nav.href='#/discover';nav.dataset.nav='discover';nav.textContent='Descobrir';document.querySelector('.nav-links').insertBefore(nav,document.querySelector('[data-nav="top5"]'));
   if(location.hash==='#/discover')nav.setAttribute('aria-current','page');
@@ -73,9 +73,9 @@
   // Erros de rede e API desatualizada viram mensagens acionáveis, em vez de "Failed to fetch".
   async function getJSON(url,fallback){
     let response;
-    try{response=await fetch(url);}catch{throw Error('Sem conexão com o servidor do ClipForge. Verifique se ele está aberto e recarregue a página.');}
+    try{response=await fetch(url);}catch{throw Error('Sem conexão com o servidor do CutClips. Verifique se ele está aberto e recarregue a página.');}
     const body=await response.json().catch(()=>({}));
-    if(response.status===404&&body.detail==='Not Found')throw Error('O servidor do ClipForge em execução é de uma versão anterior. Feche e abra o ClipForge de novo para usar a busca de vídeos.');
+    if(response.status===404&&body.detail==='Not Found')throw Error('O servidor do CutClips em execução é de uma versão anterior. Feche e abra o CutClips de novo para usar a busca de vídeos.');
     if(!response.ok)throw Error(typeof body.detail==='string'?body.detail:fallback);
     return body;
   }

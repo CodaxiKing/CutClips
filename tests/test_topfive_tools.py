@@ -6,7 +6,7 @@ import wave
 import numpy as np
 import pytest
 from api import db, studio, topfive_tools
-from clipforge import config, topfive as t5
+from cutclips import config, topfive as t5
 
 
 def payload():

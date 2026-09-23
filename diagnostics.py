@@ -30,7 +30,7 @@ _PATTERNS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("permissiondenied", "403", "forbidden"),
      "a chave não tem permissão para o modelo configurado."),
     (("notfounderror", "404", "model not found", "does not exist"),
-     "o modelo configurado não existe nessa conta. Revise CLIPFORGE_LLM_MODEL."),
+     "o modelo configurado não existe nessa conta. Revise CUTCLIPS_LLM_MODEL."),
     (("ratelimit", "429", "quota", "credit balance", "insufficient_quota"),
      "o limite ou o crédito da API se esgotou. Tente mais tarde ou revise o plano."),
     (("timeout", "timed out"),
@@ -55,5 +55,5 @@ def explain(exc: BaseException) -> str:
 
 def log_exception(context: str, exc: BaseException) -> None:
     """Detalhe completo no console do worker — o lugar de investigar."""
-    print(f"[clipforge] {context}: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+    print(f"[cutclips] {context}: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
     traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
