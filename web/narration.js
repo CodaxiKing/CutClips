@@ -13,18 +13,46 @@
     try {
       const answer = await fetch('/api/narration/voices');
       const data = await answer.json();
-      const voices = data.voices || [];
+      const profile = data.influencer || {};
+      let voices = data.voices || [];
+      // A voz salva como a da influencer vira o padrão do campo, mesmo que o
+      // Windows tenha parado de listá-la (a máquina pode ter mudado).
+      if (profile.voice && !voices.includes(profile.voice)) voices = [profile.voice, ...voices];
       if (!voices.length) {
         select.innerHTML = '<option value="">Nenhuma voz encontrada no sistema</option>';
         el('nrVoiceHelp').hidden = false;
         return;
       }
-      select.innerHTML = voices.map(v => `<option value="${esc(v)}"${v === data.default ? ' selected' : ''}>${esc(v)}</option>`).join('');
+      const chosen = profile.voice || data.default || voices[0];
+      select.innerHTML = voices.map(v => `<option value="${esc(v)}"${v === chosen ? ' selected' : ''}>${esc(v)}${profile.voice === v ? ' · voz da influencer' : ''}</option>`).join('');
+      if (profile.saved_at) el('nrRate').value = profile.rate || 0;
+      showProfile(profile);
     } catch {
       select.innerHTML = '<option value="">Não foi possível listar as vozes</option>';
       el('nrVoiceHelp').hidden = false;
     }
   }
+
+  function showProfile(profile) {
+    el('nrVoiceProfile').textContent = profile.voice
+      ? `Voz atual da influencer: ${profile.voice} (andamento ${profile.rate || 0}). A narração e o lip-sync usam ela por padrão.`
+      : '';
+  }
+
+  el('nrSaveVoice').addEventListener('click', async () => {
+    el('nrVoiceProfile').textContent = '';
+    try {
+      const answer = await fetch('/api/narration/voice', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({voice: el('nrVoice').value, rate: Number(el('nrRate').value) || 0}),
+      });
+      const body = await answer.json();
+      if (!answer.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Não foi possível salvar a voz');
+      showProfile(body);
+    } catch (error) {
+      el('nrVoiceProfile').textContent = error.message;
+    }
+  });
 
   function data() {
     return {
@@ -32,6 +60,7 @@
       script: el('nrScript').value.trim(),
       sentences: Number(el('nrSentences').value),
       voice: el('nrVoice').value,
+      voice_rate: Number(el('nrRate').value) || 0,
       footage: el('nrFootage').value,
       footage_terms: el('nrTerms').value.trim(),
       background_color: el('nrColor').value.replace('#', '0x'),

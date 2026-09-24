@@ -524,6 +524,12 @@ Na portátil do ComfyUI, instale as dependências dos nós com `python_embeded\p
 
 Numa RTX 2060 SUPER de 8 GB, cada vídeo leva vários minutos. O histórico e os vídeos ficam em `storage/motion-control/`.
 
+A aba **Trocar roupa** encadeia duas etapas locais: o FLUX veste a peça escolhida na foto da influencer (enviada ou vinda da galeria da Influencer IA) e a foto já vestida segue direto para o Wan Animate com o vídeo de dança. Os pesos do FLUX podem ser trocados por `CUTCLIPS_FLUX_MODEL`, `CUTCLIPS_FLUX_TEXT_ENCODER` e `CUTCLIPS_FLUX_VAE`; o `GET /api/motion-control/config` devolve `flux_ready`/`flux_missing` para a interface dizer o que falta.
+
+A aba **Falar (lip-sync)** sincroniza os lábios da foto com um áudio enviado (WAV/MP3/M4A/AAC/OGG/FLAC de 1 a 60 segundos) ou com um texto falado pela voz do sistema. Não há fluxo embutido: exporte um fluxo de lip-sync (LatentSync, Wav2Lip, SadTalker…) em formato API com um `LoadImage`, um `LoadAudio` e exatamente um `SaveVideo`, e aponte `CUTCLIPS_LIPSYNC_WORKFLOW` para o JSON. O texto é sintetizado antes de qualquer envio ao ComfyUI, então erro de voz aparece em segundos.
+
+**Voz da influencer**: na aba Narrado, o botão **Definir esta voz como a da influencer** grava voz e andamento em `storage/voice.json`. Toda narração sem voz escolhida passa a usar esse perfil por padrão — inclusive pela API, via `GET`/`POST /api/narration/voice` — e o modo de texto do lip-sync fala com a mesma voz.
+
 ## Influencer IA
 
 A aba **Influencer IA** usa o FLUX.2 Klein 4B local do ComfyUI para criar uma personagem adulta fotorrealista a partir de texto ou de uma imagem. Instale `flux-2-klein-4b-fp8.safetensors` em `models/diffusion_models`, `qwen_3_4b.safetensors` em `models/text_encoders` e `flux2-vae.safetensors` em `models/vae`. Na galeria, clique em **Usar como referência**, **Trocar roupa** ou **Criar cena** para aproveitar uma imagem gerada. A troca de roupa aceita uma segunda foto com a peça; a cena aceita uma foto opcional do local. O modelo pode alterar detalhes apesar da instrução de preservação. A resolução padrão é 1K para reduzir uso de VRAM; 2K pode não caber em 8 GB.

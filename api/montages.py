@@ -251,6 +251,12 @@ def create_narration(data: Narration):
         # que só falharia no worker vários segundos depois.
         raise HTTPException(422, "Escreva o roteiro ou configure a chave da IA no .env "
                                  "para que ela escreva por você.")
+    if not data.voice:
+        # Voz não escolhida = voz da influencer. É o que faz o perfil valer para
+        # qualquer vídeo narrado sem a interface precisar lembrar de mandar ela.
+        profile = narrate.influencer_voice()
+        if profile["voice"]:
+            data = data.model_copy(update={"voice": profile["voice"], "voice_rate": profile["rate"]})
     job_id = db.create_job("narration", title=data.subject,
                            settings={"kind": "narration", "narration": data.model_dump()})
     return {"job_id": job_id, "status": "queued"}
@@ -261,7 +267,28 @@ def narration_voices() -> dict:
     """Vozes do sistema, para a interface oferecer as instaladas de verdade."""
     voices = narrate.list_voices()
     return {"voices": voices, "default": next((v for v in voices if "Maria" in v or "Daniel" in v),
-                                              voices[0] if voices else "")}
+                                              voices[0] if voices else ""),
+            "influencer": narrate.influencer_voice()}
+
+
+class VoiceProfile(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+    voice: str = Field(default="", max_length=80)
+    rate: int = Field(default=0, ge=-10, le=10)
+
+
+@router.get("/api/narration/voice")
+def get_influencer_voice() -> dict:
+    """Perfil da voz da influencer: a que a narração e o lip-sync usam por padrão."""
+    return narrate.influencer_voice()
+
+
+@router.post("/api/narration/voice", status_code=201)
+def set_influencer_voice(data: VoiceProfile) -> dict:
+    voices = narrate.list_voices()
+    if data.voice and voices and data.voice not in voices:
+        raise HTTPException(422, "Essa voz não está instalada nesta máquina. Escolha uma das vozes listadas.")
+    return narrate.save_influencer_voice(data.voice, data.rate)
 
 
 def _check_music(name: str) -> None:

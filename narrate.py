@@ -29,13 +29,15 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import backgrounds
-from .config import CONFIG, Config
+from .config import CONFIG, Config, STORAGE
 from .montage import MusicOptions, add_music, ffmpeg, music_path, normalize
 from .probe import probe
 
 # Palavras por segundo de narração, para estimar a duração antes de sintetizar.
 _WORDS_PER_SECOND = 2.6
 PEXELS_ENDPOINT = "https://api.pexels.com/videos/search"
+# Perfil da voz da influencer: a voz que toda narração usa quando não escolhe outra.
+VOICE_FILE = Path(STORAGE) / "voice.json"
 
 
 class Narration(MusicOptions):
@@ -45,6 +47,7 @@ class Narration(MusicOptions):
     script: str = Field(default="", max_length=4000)
     sentences: int = Field(default=6, ge=2, le=20)
     voice: str = Field(default="", max_length=80)
+    voice_rate: int = Field(default=0, ge=-10, le=10)
     footage: Literal["auto", "pexels", "folder", "color"] = "auto"
     footage_terms: str = Field(default="", max_length=200)
     background_color: str = Field(default="0x12161C", pattern=r"^0x[0-9A-Fa-f]{6}$")
@@ -149,6 +152,35 @@ def speak(text: str, out_wav: Path, voice: str = "", rate: int = 0) -> Path:
         raise RuntimeError("Não foi possível gerar a narração com a voz do sistema. "
                            f"{detail or 'Verifique se há voz instalada no Windows.'}")
     return out_wav
+
+
+def influencer_voice() -> dict:
+    """Perfil salvo da voz da influencer. Vazio = ainda não foi definida."""
+    try:
+        data = json.loads(VOICE_FILE.read_text(encoding="utf-8"))
+        rate = int(data.get("rate") or 0)
+        saved = data.get("saved_at")
+        return {"voice": str(data.get("voice") or ""), "rate": max(-10, min(10, rate)),
+                "saved_at": float(saved) if saved else None}
+    except (OSError, ValueError, TypeError):
+        return {"voice": "", "rate": 0, "saved_at": None}
+
+
+def save_influencer_voice(voice: str, rate: int) -> dict:
+    """Grava a voz escolhida como a da influencer. Vazio = volta ao padrão do sistema.
+
+    O perfil é um JSON simples no storage porque é dado de preferência, não de job:
+    não nasce nem morce com nenhuma geração, e a API de narração o aplica sozinha
+    quando o pedido não escolher voz.
+    """
+    rate = int(max(-10, min(10, rate)))
+    if not voice.strip():
+        VOICE_FILE.unlink(missing_ok=True)
+        return {"voice": "", "rate": 0, "saved_at": None}
+    payload = {"voice": voice.strip(), "rate": rate, "saved_at": time.time()}
+    VOICE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    VOICE_FILE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return {"voice": payload["voice"], "rate": rate, "saved_at": payload["saved_at"]}
 
 
 # --------------------------------------------------------------------------- #
@@ -263,7 +295,7 @@ def render_narration(spec: Narration, script: list[str], terms: list[str], direc
     clips_dir.mkdir(parents=True, exist_ok=True)
 
     progress("gravando a narração", .30)
-    voice_wav = speak(" ".join(script), work / "voice.wav", spec.voice)
+    voice_wav = speak(" ".join(script), work / "voice.wav", spec.voice, spec.voice_rate)
     # Meio segundo de sobra no fim: cortar na última sílaba soa amador.
     duration = round(audio_duration(voice_wav) + 0.6, 3)
 
