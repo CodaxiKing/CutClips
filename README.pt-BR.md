@@ -80,7 +80,7 @@ Lista os vídeos do TikTok com mais visualizações por tópico, com filtro por 
 
 ![Aba Ranking](docs/screenshots/ranking.png)
 
-Links do TikTok ou YouTube Shorts, uma frase fixa no topo e um nome para cada posição. Os números ficam visíveis desde o primeiro quadro, e cada nome é revelado quando o vídeo daquela posição começa. A prévia ao lado simula texto, posição e animações. Cada trecho aceita início e fim, e cada posição permite manter, silenciar ou substituir o áudio e enviar uma narração. **Não transcreve nem chama IA paga**: é download, corte e montagem.
+Links do TikTok ou YouTube Shorts, uma frase fixa no topo e um nome para cada posição. Os números ficam visíveis desde o primeiro quadro, e cada nome é revelado quando o vídeo daquela posição começa. Cada posição também aceita um **preço opcional** (`R$ 47,90`, `1.299,00`): ele vira um card em pílula na cor de destaque, revelado junto com o nome — é o jeito de o ranking vender sem narração. A prévia ao lado simula texto, posição e animações. Cada trecho aceita início e fim, e cada posição permite manter, silenciar ou substituir o áudio e enviar uma narração. **Não transcreve nem chama IA paga**: é download, corte e montagem.
 
 ### Quiz: pergunta, suspense, resposta
 
@@ -333,7 +333,7 @@ Na ordem em que o pipeline os usa:
 2. Confira o método de seleção usado de fato e os avisos nos clipes gerados.
 3. Abra **Revisar e editar**, marque os limites, corrija palavras e ajuste o layout.
 4. Salve e aguarde o worker. A renderização gera uma nova versão; se falhar, a anterior continua disponível.
-5. Em **Preparar publicação**, ajuste título e descrição, escolha a capa e aprove.
+5. Em **Preparar publicação**, ajuste título e descrição, marque o **produto da vitrine** (TikTok Shop) se o clipe vender algo, escolha a capa e aprove.
 6. Baixe o pacote e publique pelo YouTube Studio. Registre o link depois de publicar.
 7. Use **Registrar resultados** para acompanhar visualizações, porcentagem média assistida, inscritos, receita em reais e minutos de produção.
 

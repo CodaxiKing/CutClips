@@ -82,6 +82,27 @@ def test_ranking_reveals_in_playback_order_and_escapes_ass(workdir):
     assert 'Momento 1' in text
 
 
+def test_entry_price_draws_the_card_when_the_rank_is_revealed(workdir):
+    """Card de preço: pílula na cor de destaque, revelada junto com o nome da posição."""
+    value=payload();value['entries'][0]['price']='R$ 47,90'
+    spec=t5.TopFive.model_validate(value)
+    assert spec.entries[0].price=='R$ 47,90' and spec.entries[1].price==''
+    timeline=[{'rank':i+1,'start':i,'end':i+1} for i in range(5)]
+    path=workdir/'overlay.ass';t5.ranking_ass(spec,timeline,path)
+    text=path.read_text(encoding='utf-8')
+    assert 'Style: Price' in text
+    cards=[line for line in text.splitlines() if ',Price,,0,0,0,,' in line]
+    # O nome revelado permanece no ranking e o card de preço acompanha em cada trecho
+    # seguinte; só a posição 1 tem preço, então são 5 cartões (uma por trecho).
+    assert len(cards)==5
+    assert cards[0].startswith('Dialogue: 2,0:00:00.00,0:00:01.00')
+    assert all('R$ 47,90' in line for line in cards)
+    assert r'\3c&H0045ddff&' in cards[0]  # fundo do pill na cor de destaque padrão
+    value['entries'][1]['price']='grátis'
+    with pytest.raises(ValidationError):
+        t5.TopFive.model_validate(value)
+
+
 @pytest.mark.parametrize('count', [3, 5])
 def test_real_ffmpeg_mixed_sources(workdir, count, monkeypatch):
     a,b=workdir/'landscape.mp4',workdir/'portrait.mp4'

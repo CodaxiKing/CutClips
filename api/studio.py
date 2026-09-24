@@ -92,10 +92,17 @@ class Publication(StrictModel):
     revision: int = Field(ge=0)
     title: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=5000)
+    product: str = Field(default="", max_length=80)
     status: Literal["draft", "approved", "published"] = "draft"
     youtube_url: str = Field(default="", max_length=500)
     scheduled_date: date | None = None
     notes: str = Field(default="", max_length=2000)
+
+    @field_validator("product")
+    @classmethod
+    def single_line_product(cls, text):
+        """Produto marcado na vitrine (TikTok Shop): uma linha só, sem quebras."""
+        return " ".join(text.split())
     thumbnail: str | None = None
 
     @field_validator("youtube_url")

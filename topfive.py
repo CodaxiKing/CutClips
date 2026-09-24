@@ -118,6 +118,7 @@ class Entry(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     url: str = Field(min_length=1, max_length=600)
     name: str = Field(min_length=1, max_length=32)
+    price: str = Field(default='', max_length=16)
     start: float = Field(default=0, ge=0, le=600, allow_inf_nan=False)
     duration: float | None = Field(default=None, ge=0.5, le=MAX_CLIP, allow_inf_nan=False)
     audio_mode: Literal['original', 'mute', 'replace'] = 'original'
@@ -154,6 +155,17 @@ class Entry(BaseModel):
     def visible_name(cls, value):
         if not value or any(ord(c) < 32 for c in value):
             raise ValueError("Informe um nome sem quebras de linha")
+        return value
+
+    @field_validator("price")
+    @classmethod
+    def price_text(cls, value):
+        """Card de preço: só números e moeda (R$ 47,90 · 1.299,00), vazio para não mostrar."""
+        value = " ".join(value.split())
+        if not value:
+            return ''
+        if not re.fullmatch(r'(?:R\$|US\$|\$|€)?\s*\d+(?:[.,]\d+)*', value):
+            raise ValueError("Informe o preço com números e separadores, ex.: R$ 47,90")
         return value
 
 
@@ -246,6 +258,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     elif spec.text_effect == 'shadow':
         effect += rf'\xshad{spec.shadow_depth}\yshad{spec.shadow_depth}'
     pop = r'\fscx70\fscy70\t(0,220,\fscx112\fscy112)\t(220,380,\fscx100\fscy100)'
+    # Pill do preço: BorderStyle 3 desenha caixa (a cor de contorno vira o fundo),
+    # por isso ganha um estilo próprio antes de [Events].
+    price_style = ("Style: Price,Arial,40,&H00101010,&H00101010,&H00FFFFFF,&H80000000,-1,0,0,0,"
+                   "100,100,0,0,3,14,0,9,45,60,60,1\n\n")
+    header = header.replace("[Events]", price_style + "[Events]")
     lines = [header]
     title = "\\N".join(text_literal(s) for s in textwrap.wrap(spec.headline, width=max(15, int(1800/spec.title_size))))
     intro_ms = min(550, int((timeline[0]['end']-timeline[0]['start'])*650))
@@ -285,8 +302,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     animation = rf'\fad({min(180,reveal_ms)},0)'
                     if spec.animation_style == 'pop':
                         position = rf'\pos(125,{y+12})' + pop
-                name = r'\N'.join(textwrap.wrap(name, width=max(18, int(1500/spec.rank_size))))
-                lines.append(f"Dialogue: 2,{begin},{end},Rank,,0,0,0,,{{{position}{tags}{animation}}}{name}\n")
+                wrapped = r'\N'.join(textwrap.wrap(name, width=max(18, int(1500/spec.rank_size))))
+                lines.append(f"Dialogue: 2,{begin},{end},Rank,,0,0,0,,{{{position}{tags}{animation}}}{wrapped}\n")
+                # Card de preço: pílula alinhada à direita, logo abaixo do nome revelado.
+                price = spec.entries[rank-1].price
+                if price:
+                    rows = wrapped.count(r'\N')+1
+                    price_y = y+12+rows*round(spec.rank_size*1.18)+6
+                    price_position = rf'\pos(1035,{price_y})'
+                    price_animation = ''
+                    if spec.animate_reveal and rank == segment['rank']:
+                        reveal_ms = min(420, int((segment['end']-segment['start'])*650))
+                        price_position = rf'\move(1180,{price_y},1035,{price_y},0,{reveal_ms})'
+                        price_animation = rf'\fad({min(180,reveal_ms)},0)'
+                        if spec.animation_style == 'pop':
+                            price_position = rf'\pos(1035,{price_y})' + pop
+                    price_tags = (rf'\an9\fn{spec.rank_font}\fs{max(26, round(spec.rank_size*0.62))}'
+                                  rf'\1c{ass_color(spec.outline_color)}\3c{accent}\bord14')
+                    lines.append(f"Dialogue: 2,{begin},{end},Price,,0,0,0,,"
+                                 f"{{{price_position}{price_tags}{price_animation}}}{text_literal(price)}\n")
     path.write_text("".join(lines), encoding="utf-8")
 
 

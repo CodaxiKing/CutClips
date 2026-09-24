@@ -146,6 +146,20 @@ def test_metrics_latest_snapshot_nulls_and_atomic_import(client, completed):
     assert client.get("/api/analytics").json()["totals"]["views"]==200
 
 
+def test_publication_marks_the_product(client):
+    """Produto marcado é metadado da publicação: normaliza e persiste sem render nem FFmpeg."""
+    job_id = db.create_job("sample.mp4")
+    db.finish(job_id, {"source":"sample.mp4","source_duration":12,"provider":"heuristic",
+                       "clips":[{"index":1,"revision":0,"source_start":0,"source_end":3,
+                                 "actual_duration":3,"planned_duration":3,"title":"Um clipe",
+                                 "text":"O erro tem solução.","file":"original.mp4","thumbnail":None}]})
+    url=f"/api/jobs/{job_id}/publication/1"
+    assert client.put(url,json={"revision":0,"title":"Venda","product":"  Sérum\nVitamina  C ",
+                                "status":"draft"}).status_code==200
+    assert db.publications(job_id)["1"]["product"]=="Sérum Vitamina C"
+    assert client.put(url,json={"revision":0,"title":"Venda","product":"x"*81}).status_code==422
+
+
 def test_publication_and_zip(client, completed):
     job_id, directory = completed
     url=f"/api/jobs/{job_id}/publication/1"

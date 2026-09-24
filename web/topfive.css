@@ -114,3 +114,4 @@
 .t5-phone[data-layout=card][data-video=true] .t5-preview-bg{display:block}
 .t5-phone[data-layout=card] .t5-preview-video{inset:auto;left:50%;top:var(--t5-card-top,38%);width:var(--t5-card-width,78%);height:auto;max-height:100%;transform:translate(-50%,-50%);border-radius:var(--t5-card-radius,2.6cqw);object-fit:contain}
 .t5-phone[data-layout=card] .t5-preview-scene{inset:auto 11% auto;top:var(--t5-card-top,38%);transform:translateY(-50%)}
+.t5-phone li .t5-price{display:inline-block;font-style:normal;font-weight:700;margin-left:6px;padding:0 6px;border-radius:6px;color:#101010;background:var(--t5-accent,#ffdd45);-webkit-text-stroke:0;text-shadow:none}
