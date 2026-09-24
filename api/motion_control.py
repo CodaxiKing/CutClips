@@ -101,6 +101,12 @@ def _guard_speech(path: Path) -> None:
                            "Encurte o texto e tente novamente.")
 
 
+def _speech_audio(folder: Path) -> Path:
+    """O áudio da fala: só extensão de áudio — o TTS deixa um `speech.txt` ao lado
+    do wav, e subir o .txt como áudio faria o ComfyUI recusar o LoadAudio."""
+    return next(path for path in folder.glob("speech.*") if path.suffix in AUDIO_EXT)
+
+
 def _base_url() -> str:
     url = os.getenv("CUTCLIPS_COMFYUI_URL", "http://127.0.0.1:8188").rstrip("/")
     parsed = urlparse(url)
@@ -455,7 +461,7 @@ def _run_lipsync(job_id: str, text: str, voice: str, reply_to: str = "") -> None
                 raise RuntimeError("Lip-sync incompleto no ComfyUI. Faltando: " + ", ".join(missing))
             _save(job_id, status="uploading")
             person_file = next(path for path in folder.glob("person.*") if path.stem == "person")
-            audio_file = next(path for path in folder.glob("speech.*") if path.stem == "speech")
+            audio_file = _speech_audio(folder)
             image = _upload(client, person_file)
             sound = _upload(client, audio_file)
             flow, output_id = _lipsync_flow(image, sound)

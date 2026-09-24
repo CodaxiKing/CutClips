@@ -266,9 +266,13 @@ def create_narration(data: Narration):
 def narration_voices() -> dict:
     """Vozes do sistema, para a interface oferecer as instaladas de verdade."""
     voices = narrate.list_voices()
-    return {"voices": voices, "default": next((v for v in voices if "Maria" in v or "Daniel" in v),
-                                              voices[0] if voices else ""),
-            "influencer": narrate.influencer_voice()}
+    status = narrate.piper_status()
+    return {"voices": voices,
+            "default": next((v for v in voices if v.startswith(narrate.PIPER_PREFIX)),
+                            next((v for v in voices if "Maria" in v or "Daniel" in v),
+                                 voices[0] if voices else "")),
+            "influencer": narrate.influencer_voice(),
+            "piper": {"ready": status["ready"], "missing": status["missing"]}}
 
 
 class VoiceProfile(BaseModel):

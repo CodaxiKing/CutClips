@@ -532,6 +532,15 @@ A aba **Vender (one-shot)** entrega dois vídeos num job só: a influencer danç
 
 **Voz da influencer**: na aba Narrado, o botão **Definir esta voz como a da influencer** grava voz e andamento em `storage/voice.json`. Toda narração sem voz escolhida passa a usar esse perfil por padrão — inclusive pela API, via `GET`/`POST /api/narration/voice` — e o modo de texto do lip-sync fala com a mesma voz.
 
+**Piper (voz neural local)**: para uma voz bem mais natural que a do Windows, baixe o [Piper](https://github.com/rhasspy/piper/releases) (zip `piper_windows_amd64.zip`) e um modelo em português como [`pt_BR-faber-medium.onnx`](https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/BR/faber/medium/pt_BR-faber-medium.onnx) — baixe também o `.json` que vai ao lado do `.onnx` — e declare no `.env`:
+
+```ini
+CUTCLIPS_PIPER_BIN=C:\piper\piper.exe
+CUTCLIPS_PIPER_MODEL=C:\piper\pt_BR-faber-medium.onnx
+```
+
+Com os dois arquivos no lugar, a voz **Piper · pt_BR-faber-medium** aparece em primeiro na lista de vozes e vira o padrão de quem não escolheu voz: narração, modo de texto do lip-sync e roteiro do one-shot passam a falar com ela, e o andamento (−10 a 10) é traduzido para o `length-scale` do Piper. Sem os dois env vars nada muda — o SAPI do Windows segue como fallback — e um nome de voz SAPI escolhido à mão continua no SAPI mesmo com o Piper configurado. O texto vai por stdin, nunca por argumento, e as duas grafias de flag são aceitas (`--output_file` do Piper clássico e `--output-file` do piper1-gpl). `GET /api/narration/voices` devolve `piper.ready`/`piper.missing` para a interface.
+
 **Cancelar e retomar**: toda geração em andamento tem o botão **Cancelar geração** (`POST /api/motion-control/{id}/cancel`): a thread para na próxima checagem, o prompt atual é interrompido no ComfyUI e o status vira `cancelled` (não erro). Gerações com erro ou canceladas têm o botão **Tentar de novo** (`POST /api/motion-control/{id}/retry`), que reentra na fila com os mesmos parâmetros e **pula as etapas que já terminaram** — cada etapa concluída grava uma bandeira (`done_speech`, `done_dress`, `done_dance`, `done_talk`) só quando o arquivo está completo, então uma falha na etapa 2 do try-on ou no lip-sync do one-shot não refaz o FLUX e a dança. O TTS sintetizado é medido antes de subir ao ComfyUI: fala fora de 1–60 s falha em segundos com a instrução de encurtar o texto. Como o ComfyUI renderiza um vídeo por vez, a interface também avisa quantas gerações estão em andamento.
 
 ## Influencer IA

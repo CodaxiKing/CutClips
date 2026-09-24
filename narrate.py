@@ -9,9 +9,10 @@ Três decisões que fogem do óbvio:
 * A legenda **não** vem do roteiro escrito, e sim de transcrever a narração
   gerada. O texto escrito não sabe onde a voz respirou; a transcrição sabe, e é
   ela que faz a legenda cair junto com a palavra falada.
-* A voz é a do Windows (SAPI). É modesta comparada às vozes de nuvem, mas roda
-  sem chave, sem custo e sem mandar o roteiro para fora — do mesmo jeito que o
-  resto do aplicativo. Trocar por outra é implementar uma função.
+* A voz é local: a do Windows (SAPI) por padrão, ou o Piper neural quando
+  `CUTCLIPS_PIPER_BIN` e `CUTCLIPS_PIPER_MODEL` apontam para o binário e o
+  modelo baixados. Nos dois casos roda sem chave, sem custo e sem mandar o
+  roteiro para fora — do mesmo jeito que o resto do aplicativo.
 * Sem chave do Pexels o modo não morre: cai para a pasta de fundos e, se ela
   estiver vazia, para uma cor lisa. O vídeo sai mais pobre, mas sai.
 """
@@ -188,25 +189,103 @@ def audio_duration(path: Path) -> float:
 
 
 def list_voices() -> list[str]:
-    """Vozes instaladas no Windows. Lista vazia em outro sistema."""
+    """Vozes instaladas no Windows, com a do Piper na frente quando ele está pronto."""
     script = ("Add-Type -AssemblyName System.Speech;"
               "(New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices()"
               " | ForEach-Object { $_.VoiceInfo.Name }")
     try:
         done = subprocess.run(["powershell", "-NoProfile", "-Command", script],
                               capture_output=True, text=True, timeout=30)
+        voices = [line.strip() for line in done.stdout.splitlines() if line.strip()]
     except (OSError, subprocess.SubprocessError):
-        return []
-    return [line.strip() for line in done.stdout.splitlines() if line.strip()]
+        voices = []
+    status = piper_status()
+    return [status["voice"], *voices] if status["ready"] else voices
+
+
+# --------------------------------------------------------------------------- #
+# Voz neural local (Piper)
+# --------------------------------------------------------------------------- #
+
+# Configurar os dois env vars é escolher o Piper: ele vira a primeira voz da
+# lista e o padrão de quem não escolheu nada. Quem digita um nome SAPI explícito
+# continua com o SAPI.
+PIPER_PREFIX = "Piper · "
+# Variante de flag que funcionou nesta instalação: o clássico usa sublinhado
+# (--output_file) e o piper1-gpl usa hífen (--output-file).
+_piper_flags: tuple[str, str] | None = None
+
+
+def piper_status() -> dict:
+    """Estado do Piper local: pronto, o que falta e o nome da voz que ele oferece."""
+    binary = os.getenv("CUTCLIPS_PIPER_BIN", "").strip()
+    model = os.getenv("CUTCLIPS_PIPER_MODEL", "").strip()
+    missing = []
+    if not binary or not Path(binary).is_file():
+        missing.append("CUTCLIPS_PIPER_BIN")
+    if not model or not Path(model).is_file():
+        missing.append("CUTCLIPS_PIPER_MODEL")
+    return {"ready": not missing, "missing": missing,
+            "voice": PIPER_PREFIX + (Path(model).stem if model else "voz local")}
+
+
+def piper_active(voice: str) -> bool:
+    """Esta fala sai pelo Piper: quem escolheu a voz do Piper, ou ninguém escolheu
+    voz nenhuma e o Piper está configurado."""
+    status = piper_status()
+    if not status["ready"]:
+        return False
+    return not voice.strip() or voice.startswith(PIPER_PREFIX)
+
+
+def _length_scale(rate: int) -> str:
+    """Andamento −10..10 (a mesma escala do SAPI) para o length-scale do Piper."""
+    rate = int(max(-10, min(10, rate)))
+    return str(round(1 - 0.04 * rate, 3) if rate >= 0 else round(1 - 0.06 * rate, 3))
+
+
+def _speak_piper(text: str, out_wav: Path, rate: int) -> Path:
+    """Síntese neural local. O texto vai por stdin, não por linha de comando:
+    roteiro tem aspas, acento e quebra de linha, e argumento é como isso quebra."""
+    global _piper_flags
+    status = piper_status()
+    if not status["ready"]:
+        raise RuntimeError("Piper não está configurado: " + ", ".join(status["missing"]))
+    binary = os.getenv("CUTCLIPS_PIPER_BIN", "").strip()
+    model = os.getenv("CUTCLIPS_PIPER_MODEL", "").strip()
+    source = out_wav.with_suffix(".txt")
+    source.write_text(text, encoding="utf-8")
+    styles = [_piper_flags] if _piper_flags else [("output_file", "length_scale"),
+                                                  ("output-file", "length-scale")]
+    detail = ""
+    for style in styles:
+        out_wav.unlink(missing_ok=True)
+        try:
+            with source.open("rb") as feed:
+                done = subprocess.run([binary, "--model", model,
+                                       f"--{style[0]}", str(out_wav),
+                                       f"--{style[1]}", _length_scale(rate)],
+                                      stdin=feed, capture_output=True, timeout=600)
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = str(exc)
+            continue
+        if not done.returncode and out_wav.is_file() and out_wav.stat().st_size >= 1024:
+            _piper_flags = style
+            return out_wav
+        detail = (done.stderr or done.stdout or "").strip()[-300:] or detail
+    raise RuntimeError(f"O Piper não gerou o áudio. {detail or 'Verifique o binário e o modelo.'}")
 
 
 def speak(text: str, out_wav: Path, voice: str = "", rate: int = 0) -> Path:
-    """Narração em WAV pela voz do sistema.
+    """Narração em WAV: Piper neural local quando configurado, senão a voz do sistema.
 
-    O texto vai por arquivo, não por linha de comando: roteiro tem aspas, acento e
-    quebra, e passar isso por argumento é como o comando quebra em produção.
+    O texto vai por arquivo (SAPI) ou stdin (Piper), nunca por linha de comando:
+    roteiro tem aspas, acento e quebra, e passar isso por argumento é como o
+    comando quebra em produção.
     """
     out_wav.parent.mkdir(parents=True, exist_ok=True)
+    if piper_active(voice):
+        return _speak_piper(text, out_wav, rate)
     source = out_wav.with_suffix(".txt")
     source.write_text(text, encoding="utf-8")
     # Voz ausente não pode derrubar a geração: o nome muda entre máquinas e entre
@@ -415,8 +494,10 @@ def render_narration(spec: Narration, script: list[str], terms: list[str], direc
     if not footage and spec.footage != "color":
         warnings.append("Sem imagens: configure PEXELS_API_KEY ou coloque vídeos na pasta de "
                         "fundos. O vídeo saiu com fundo liso.")
-    warnings.append("Voz sintetizada pelo Windows. Confira a pronúncia de nomes próprios antes "
-                    "de publicar.")
+    warnings.append("Voz neural local (Piper). Confira a pronúncia de nomes próprios antes "
+                    "de publicar." if piper_active(spec.voice)
+                    else "Voz sintetizada pelo Windows. Confira a pronúncia de nomes próprios antes "
+                         "de publicar.")
     texto = " ".join(script)
     return {"kind": "narration", "source_duration": duration,
             "source_resolution": f"{width}×{height}", "provider": "narração",

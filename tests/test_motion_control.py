@@ -389,6 +389,19 @@ def test_stage_done_only_skips_when_flag_and_file_agree(tmp_path, monkeypatch):
     assert motion_control._stage_done(job_id, "done_dance", artifact) is False
 
 
+def test_speech_audio_ignores_the_text_file_the_tts_leaves_behind(tmp_path, monkeypatch):
+    """O TTS grava speech.txt ao lado do wav: subir o .txt quebraria o LoadAudio."""
+    root = _isolated_root(tmp_path, monkeypatch)
+    folder = _write_job(root, "6" * 32, status="speaking")
+    (folder / "speech.txt").write_text("roteiro", encoding="utf-8")
+    wav = folder / "speech.wav"
+    wav.write_bytes(b"RIFF")
+    assert motion_control._speech_audio(folder) == wav
+    (folder / "speech.wav").unlink()
+    with pytest.raises(StopIteration):
+        motion_control._speech_audio(folder)
+
+
 def test_guard_speech_rejects_generated_audio_over_the_limit(tmp_path, monkeypatch):
     """TTS sintetizado é medido antes do ComfyUI: erro em segundos, não depois do render."""
     path = tmp_path / "speech.wav"
