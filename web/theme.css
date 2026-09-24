@@ -5,6 +5,29 @@
 .nav-links a{padding:7px 12px;border-radius:999px;white-space:nowrap;transition:color .15s,background .15s}
 .nav-links a:hover{background:rgba(255,255,255,.05)}
 .nav-links a[aria-current="page"]{color:var(--fg);background:rgba(255,255,255,.1)}
+.nav-links{flex-wrap:nowrap;align-items:center}
+
+/* grupos com menu suspenso: Formatos e Estúdio IA */
+.nav-trigger{display:inline-flex;align-items:center;gap:5px;padding:7px 10px 7px 12px;border:0;border-radius:999px;
+  background:none;color:inherit;font:inherit;white-space:nowrap;cursor:pointer;transition:color .15s,background .15s}
+.nav-trigger svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s}
+.nav-trigger:hover{color:var(--fg);background:rgba(255,255,255,.05)}
+.nav-trigger[aria-expanded="true"]{color:var(--fg);background:rgba(255,255,255,.08)}
+.nav-trigger[aria-expanded="true"] svg{transform:rotate(180deg)}
+.nav-group:has([aria-current="page"]) .nav-trigger{color:var(--fg);background:rgba(255,255,255,.1)}
+.nav-trigger:focus-visible,.nav-menu a:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.nav-menu{position:fixed;z-index:30;min-width:250px;padding:6px;border:1px solid var(--line-2);border-radius:14px;
+  background:rgba(14,14,14,.97);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);box-shadow:0 18px 40px rgba(0,0,0,.45)}
+.nav-menu[hidden]{display:none}
+.nav-menu a{display:block;padding:9px 12px;border-radius:9px;color:var(--fg);font-size:14px}
+.nav-menu a small{display:block;margin-top:2px;color:var(--muted);font-size:12px}
+.nav-menu a:hover{background:rgba(255,255,255,.06)}
+.nav-menu a[aria-current="page"]{background:rgba(255,255,255,.1)}
+@media(max-width:900px){
+  .nav .wrap{height:auto;min-height:64px;flex-wrap:wrap;padding-block:10px;gap:8px 12px}
+  .nav-links{order:3;width:100%;overflow-x:auto;scrollbar-width:none}
+  .nav-links::-webkit-scrollbar{display:none}
+}
 @media(max-width:560px){
   .nav-links{justify-content:flex-start;overflow-x:auto;scrollbar-width:none;margin-inline:-6px;padding-inline:2px;font-size:13px}
   .nav-links::-webkit-scrollbar{display:none}

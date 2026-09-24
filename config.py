@@ -6,7 +6,8 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+_MODULE_DIR = Path(__file__).resolve().parent
+ROOT = _MODULE_DIR if (_MODULE_DIR / "api").is_dir() and (_MODULE_DIR / "web").is_dir() else _MODULE_DIR.parent
 try:
     from dotenv import load_dotenv
     load_dotenv(ROOT / ".env", override=False)
@@ -20,6 +21,8 @@ for _name, _value in list(os.environ.items()):
     if _name.startswith(LEGACY_ENV_PREFIX):
         os.environ.setdefault(ENV_PREFIX + _name[len(LEGACY_ENV_PREFIX):], _value)
 STORAGE = Path(os.getenv("CUTCLIPS_STORAGE", ROOT / "storage"))
+if not STORAGE.is_absolute():
+    STORAGE = ROOT / STORAGE
 
 
 def _f(name: str, default: float) -> float:

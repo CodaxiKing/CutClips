@@ -10,7 +10,7 @@
 
 Aplicativo local (self-hosted) que transforma vídeos longos, lives e links em clipes verticais legendados para Shorts, TikTok e Reels, e também monta formatos prontos: ranking Top 3/4/5, quiz com suspense, reação lado a lado e vídeo narrado a partir de um tema. Feito em Python, FastAPI, SQLite e FFmpeg, com interface web sem framework.
 
-Seus vídeos não saem da sua máquina. A exceção é o texto enviado à IA que você escolher.
+Nos recursos locais, seus vídeos ficam na sua máquina; o texto enviado ao provedor de IA configurado para seleção de trechos é uma exceção. Motion Control e Influencer IA usam apenas fluxos locais do ComfyUI, sem cobrança por geração.
 
 ![Tela inicial do CutClips](docs/screenshots/inicio.png)
 
@@ -505,3 +505,31 @@ O sistema ajuda na produção; a monetização depende do conteúdo, do canal e 
 - **Proibido:** vender o CutClips, ou oferecer mediante pagamento um produto ou serviço cujo valor venha dele, como vender cópias, versões modificadas, hospedagem ou suporte pagos.
 
 Este resumo não substitui o arquivo [LICENSE](LICENSE), que é o que vale. O texto da licença está em inglês.
+
+## Motion Control
+
+A aba **Motion Control** anima a pessoa de uma foto com os movimentos de um vídeo de referência, usando o Wan 2.2 Animate no ComfyUI local, sem créditos. Envie uma imagem PNG/JPG/WebP e um vídeo MP4/WebM/M4V de 2 a 30 segundos com uma pessoa em cena. O CutClips converte o vídeo para 16 fps e anima os primeiros 77 quadros (cerca de 5 segundos), que é uma passada do Wan; o áudio do vídeo de movimento volta no resultado.
+
+O fluxo já vem embutido no CutClips (modo *move*: a pessoa da foto, no fundo da foto, faz os movimentos do vídeo). Ele precisa de dois nós personalizados em `ComfyUI/custom_nodes` — [ComfyUI-GGUF](https://github.com/city96/ComfyUI-GGUF) e [comfyui_controlnet_aux](https://github.com/Fannovel16/comfyui_controlnet_aux) (DWPose) — e destes pesos:
+
+| Arquivo | Pasta em `ComfyUI/models` |
+|---|---|
+| `Wan2.2-Animate-14B-Q4_K_S.gguf` ([QuantStack](https://huggingface.co/QuantStack/Wan2.2-Animate-14B-GGUF)) | `diffusion_models` |
+| `lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors` | `loras` |
+| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `text_encoders` |
+| `clip_vision_h.safetensors` | `clip_vision` |
+| `wan_2.1_vae.safetensors` | `vae` |
+
+Na portátil do ComfyUI, instale as dependências dos nós com `python_embeded\python.exe -s -m pip install ...`: sem o `-s`, pacotes já presentes em `%APPDATA%\Python` fazem o pip achar que está tudo instalado. Os nomes dos arquivos podem ser trocados por `CUTCLIPS_WAN_MODEL`, `CUTCLIPS_WAN_LORA`, `CUTCLIPS_WAN_TEXT_ENCODER`, `CUTCLIPS_WAN_CLIP_VISION` e `CUTCLIPS_WAN_VAE`; `CUTCLIPS_WAN_MAX_SIDE` (padrão 640) limita o maior lado do vídeo gerado. Para usar outro fluxo (por exemplo, o modo *replace*), exporte-o em formato API com um `LoadImage`, um `LoadVideo` e um `SaveVideo` e aponte `CUTCLIPS_WAN_WORKFLOW` para o JSON.
+
+Numa RTX 2060 SUPER de 8 GB, cada vídeo leva vários minutos. O histórico e os vídeos ficam em `storage/motion-control/`.
+
+## Influencer IA
+
+A aba **Influencer IA** usa o FLUX.2 Klein 4B local do ComfyUI para criar uma personagem adulta fotorrealista a partir de texto ou de uma imagem. Instale `flux-2-klein-4b-fp8.safetensors` em `models/diffusion_models`, `qwen_3_4b.safetensors` em `models/text_encoders` e `flux2-vae.safetensors` em `models/vae`. Na galeria, clique em **Usar como referência**, **Trocar roupa** ou **Criar cena** para aproveitar uma imagem gerada. A troca de roupa aceita uma segunda foto com a peça; a cena aceita uma foto opcional do local. O modelo pode alterar detalhes apesar da instrução de preservação. A resolução padrão é 1K para reduzir uso de VRAM; 2K pode não caber em 8 GB.
+
+**Gerar 3D** usa um fluxo local Hunyuan3D exportado em formato API, configurado em `CUTCLIPS_HUNYUAN3D_WORKFLOW`. O fluxo precisa ter ao menos um `LoadImage` e exatamente um `SaveGLB`. Para fotos frontal, laterais e traseira, use uma variante multivista com quatro `LoadImage` na mesma ordem. O visualizador permite girar e aproximar o GLB e usa o componente `<model-viewer>` carregado da internet. Com uma única foto, o modelo infere as partes não visíveis.
+
+Com o ComfyUI portátil, defina `CUTCLIPS_COMFYUI_DIR` no `.env` com a pasta `ComfyUI_windows_portable`: o **Iniciar CutClips.cmd** sobe o ComfyUI junto, em segundo plano, com log em `comfyui.log` e `comfyui.err.log` dentro dessa pasta. Numa RTX 2060 SUPER de 8 GB, uma imagem 1K leva cerca de 35 segundos.
+
+Os fluxos desta aba e do Motion Control bloqueiam nós pagos conhecidos antes de enviá-los ao ComfyUI. Nenhuma geração usa créditos de provedores; há uso local de GPU, eletricidade e disco. O ComfyUI e os pesos não são instalados automaticamente. Imagens e modelos gerados ficam em `storage/influencers/`.

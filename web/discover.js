@@ -11,7 +11,7 @@
   let candidates=[],loadError='';
   try{const saved=JSON.parse(localStorage.getItem(key)??localStorage.getItem(legacyKey)??'[]');if(!Array.isArray(saved))throw Error();candidates=saved.slice(0,200).filter(e=>{try{return typeof e.name==='string'&&e.name.length<=32&&videoURL(e.url)===e.url;}catch{return false;}});}catch{loadError='Não foi possível recuperar a lista salva neste navegador.';}
   const selected=new Set();
-  const nav=document.createElement('a');nav.href='#/discover';nav.dataset.nav='discover';nav.textContent='Descobrir';document.querySelector('.nav-links').insertBefore(nav,document.querySelector('[data-nav="top5"]'));
+  const nav=document.createElement('a');nav.href='#/discover';nav.dataset.nav='discover';nav.textContent='Descobrir';document.querySelector('.nav-links').insertBefore(nav,document.querySelector('.nav-links > .nav-group'));
   if(location.hash==='#/discover')nav.setAttribute('aria-current','page');
   $('discover').innerHTML=`<header><p class="discover-kicker">DESCOBRIR · TIKTOK</p><h1>Encontre os vídeos do seu ranking.</h1><p>Escolha um tópico, veja os vídeos com mais visualizações e preencha um Top 3, 4 ou 5 com um clique.</p></header>
     <section class="discover-trending" aria-labelledby="trendingTitle">

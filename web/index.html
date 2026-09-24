@@ -17,6 +17,8 @@
 <link rel="stylesheet" href="/assets/discover.css">
 <link rel="stylesheet" href="/assets/montages.css">
 <link rel="stylesheet" href="/assets/theme.css">
+<link rel="stylesheet" href="/assets/motion-control.css">
+<link rel="stylesheet" href="/assets/influencers.css">
 <title>CutClips</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23fff'/%3E%3Cpath d='M12 9.5v13l11-6.5z' fill='%23000'/%3E%3C/svg%3E">
 <style>
@@ -323,12 +325,19 @@
       <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#fff"/><path d="M12 9.5v13l11-6.5z" fill="#000"/></svg>
       CutClips
     </a>
-    <div class="nav-links"><a href="#/" data-nav="home">Início</a><a href="#/" data-scroll="projetos" data-nav="projects">Projetos</a><a href="#/top5" data-nav="top5">Ranking</a><a href="#/quiz" data-nav="quiz">Quiz</a><a href="#/reaction" data-nav="reaction">Reação</a><a href="#/narration" data-nav="narration">Narrado</a><a href="#/channel" data-nav="channel">YouTube</a></div>
+    <div class="nav-links"><a href="#/" data-nav="home">Início</a><a href="#/" data-scroll="projetos" data-nav="projects">Projetos</a>
+      <div class="nav-group"><button type="button" class="nav-trigger" aria-expanded="false" aria-controls="navFormats">Formatos<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 4.5 6 7.5l3-3"/></svg></button>
+        <div class="nav-menu" id="navFormats" hidden><a href="#/top5" data-nav="top5">Ranking<small>Top 3, 4 ou 5 com contagem</small></a><a href="#/quiz" data-nav="quiz">Quiz<small>Perguntas com suspense</small></a><a href="#/reaction" data-nav="reaction">Reação<small>Vídeo lado a lado</small></a><a href="#/narration" data-nav="narration">Narrado<small>Vídeo narrado a partir de um tema</small></a></div></div>
+      <div class="nav-group"><button type="button" class="nav-trigger" aria-expanded="false" aria-controls="navStudio">Estúdio IA<svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 4.5 6 7.5l3-3"/></svg></button>
+        <div class="nav-menu" id="navStudio" hidden><a href="#/influencers" data-nav="influencers">Influencer IA<small>Imagens e 3D de uma personagem</small></a><a href="#/motion-control" data-nav="motion-control">Motion Control<small>Anime uma foto com um vídeo</small></a></div></div>
+      <a href="#/channel" data-nav="channel">YouTube</a></div>
     <span class="status"><i class="dot" id="healthDot"></i><span id="health">conectando…</span></span>
   </div>
 </nav>
 
 <main class="wrap">
+  <section id="influencers" hidden></section>
+  <section id="motion-control" hidden></section>
   <section id="channel" hidden>
     <header class="yt-header"><div><p class="yt-eyebrow"><span class="yt-logo">▶</span> YOUTUBE ANALYTICS</p><h1>Seu canal, em perspectiva<span>.</span></h1><p>Do alcance à atenção. Entenda o que funciona e encontre seu próximo passo.</p></div><span class="yt-badge" id="ytBadge">Aguardando conexão</span></header>
     <div class="yt-connect" id="ytConnectCard"><div class="yt-orbit" aria-hidden="true"><span>▶</span></div><div class="yt-connect-copy"><span class="yt-kicker">SEUS DADOS. SEM PLANILHAS.</span><h2 id="ytConnectTitle">Conecte seu canal uma vez.</h2><p id="ytConnectText">Visualizações, retenção e inscritos vêm direto do YouTube. Impressões e CTR são sincronizados assim que os relatórios de alcance estiverem disponíveis.</p><div class="yt-actions"><button class="btn yt-primary" id="ytConnect">Conectar YouTube <span>↗</span></button><button class="btn btn-outline" id="ytDisconnect" hidden>Desconectar</button><span class="yt-readonly">Acesso de leitura · Sem publicar vídeos</span></div></div></div>
@@ -644,7 +653,7 @@
   <section id="project" class="page" hidden></section>
 </main>
 
-<footer><div class="wrap">CutClips · self-hosted · seus vídeos não saem da sua máquina (exceto o texto enviado à IA escolhida)</div></footer>
+<footer><div class="wrap">CutClips · self-hosted · recursos de IA podem enviar arquivos aos provedores escolhidos</div></footer>
 
 <div class="drop-overlay" id="dropOverlay" hidden>
   <div>
@@ -1282,16 +1291,18 @@ $("project").addEventListener("click", async e => {
 function route(){
   const m = location.hash.match(/^#\/job\/([\w-]+)/);
   currentId = m ? m[1] : null;
-  $("home").hidden = !!currentId || ['#/discover', '#/channel', '#/top5', '#/quiz', '#/reaction', '#/narration'].includes(location.hash);
+  $("home").hidden = !!currentId || ['#/discover', '#/channel', '#/top5', '#/quiz', '#/reaction', '#/narration', '#/motion-control', '#/influencers'].includes(location.hash);
   $("discover").hidden = location.hash !== '#/discover';
   $("topfive").hidden = location.hash !== '#/top5';
   $("quiz").hidden = location.hash !== '#/quiz';
   $("reaction").hidden = location.hash !== '#/reaction';
   $("narration").hidden = location.hash !== '#/narration';
   $("channel").hidden = location.hash !== '#/channel';
+  $("motion-control").hidden = location.hash !== '#/motion-control';
+  $("influencers").hidden = location.hash !== '#/influencers';
   $("project").hidden = !currentId;
   $("dropOverlay").hidden = true;
-  const tab = currentId ? "projects" : ({"#/discover": "discover", "#/top5": "top5", "#/quiz": "quiz", "#/reaction": "reaction", "#/narration": "narration", "#/channel": "channel"})[location.hash] || "home";
+  const tab = currentId ? "projects" : ({"#/discover": "discover", "#/top5": "top5", "#/quiz": "quiz", "#/reaction": "reaction", "#/narration": "narration", "#/influencers": "influencers", "#/motion-control": "motion-control", "#/channel": "channel"})[location.hash] || "home";
   document.querySelectorAll("[data-nav]").forEach(a => a.dataset.nav === tab ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   if (currentId) {
     $("project").dataset.key = "";
@@ -1303,6 +1314,38 @@ function route(){
   window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", route);
+
+// Menus Formatos e Estúdio IA. O menu é `position: fixed` e ancorado no botão para não
+// ser cortado quando a barra rola na horizontal em telas estreitas.
+function closeNavMenus(except) {
+  document.querySelectorAll(".nav-trigger[aria-expanded='true']").forEach(b => {
+    if (b === except) return;
+    b.setAttribute("aria-expanded", "false");
+    $(b.getAttribute("aria-controls")).hidden = true;
+  });
+}
+document.querySelectorAll(".nav-trigger").forEach(button => {
+  const menu = $(button.getAttribute("aria-controls"));
+  button.addEventListener("click", () => {
+    const open = button.getAttribute("aria-expanded") !== "true";
+    closeNavMenus(button);
+    button.setAttribute("aria-expanded", String(open));
+    menu.hidden = !open;
+    if (!open) return;
+    const r = button.getBoundingClientRect();
+    menu.style.top = `${r.bottom + 8}px`;
+    menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - menu.offsetWidth - 8))}px`;
+  });
+  menu.addEventListener("click", e => { if (e.target.closest("a")) closeNavMenus(); });
+});
+document.addEventListener("click", e => { if (!e.target.closest(".nav-group")) closeNavMenus(); });
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  const open = document.querySelector(".nav-trigger[aria-expanded='true']");
+  if (open) { closeNavMenus(); open.focus(); }
+});
+window.addEventListener("resize", () => closeNavMenus());
+document.querySelector(".nav-links").addEventListener("scroll", () => closeNavMenus());
 
 document.querySelectorAll("[data-scroll]").forEach(a => a.addEventListener("click", e => {
   e.preventDefault();
@@ -1342,5 +1385,8 @@ setInterval(refresh, 2000);
 <script src="/assets/discover.js"></script>
 <script src="/assets/narration.js"></script>
 <script src="/assets/montages.js"></script>
+<script src="/assets/motion-control.js"></script>
+<script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.3.1/model-viewer.min.js"></script>
+<script src="/assets/influencers.js"></script>
 </body>
 </html>

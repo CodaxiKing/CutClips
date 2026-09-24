@@ -10,7 +10,7 @@
 
 A local, self-hosted app that turns long videos, livestreams and links into captioned vertical clips for Shorts, TikTok and Reels. It also builds ready-made formats: Top 3/4/5 rankings, suspense quizzes, side-by-side reactions and narrated videos from a topic. Built with Python, FastAPI, SQLite and FFmpeg, with a framework-free web interface.
 
-Your videos never leave your machine. The only exception is the text sent to the AI provider you choose.
+Local editing keeps videos on your machine; text sent to your chosen AI provider for clip selection is an exception. Motion Control and Influencer IA use local ComfyUI workflows without per-generation credits; model weights must be installed locally.
 
 > The interface is in Brazilian Portuguese. Interface labels are quoted as they appear on screen, with a translation alongside.
 

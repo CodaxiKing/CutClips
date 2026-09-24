@@ -57,6 +57,10 @@ from api.trending import router as trending_router
 app.include_router(trending_router)
 from api.montages import router as montages_router
 app.include_router(montages_router)
+from api.motion_control import router as motion_control_router
+app.include_router(motion_control_router)
+from api.influencers import router as influencers_router
+app.include_router(influencers_router)
 
 
 def _safe_name(name: str) -> str:
@@ -82,20 +86,30 @@ def _clip_path(job_id: str, filename: str) -> Path:
 
 # --------------------------------------------------------------------------- #
 
+# A interface muda junto com o código: `no-cache` faz o navegador revalidar (ETag) a cada
+# carregamento, em vez de reaproveitar HTML/CSS/JS antigos por heurística.
+NO_CACHE = {"Cache-Control": "no-cache"}
+
+
 @app.get("/", response_class=HTMLResponse)
-def index() -> str:
+def index() -> HTMLResponse:
     page = WEB / "index.html"
     if not page.exists():
-        return "<h1>CutClips</h1><p>interface não encontrada</p>"
-    return page.read_text(encoding="utf-8")
+        return HTMLResponse("<h1>CutClips</h1><p>interface não encontrada</p>")
+    # `?v=<mtime>` em cada asset: navegadores que guardaram uma versão antiga sem
+    # Cache-Control a reaproveitariam por heurística mesmo com o HTML atualizado.
+    html = re.sub(r'(/assets/([\w.-]+))(?=")',
+                  lambda m: f"{m[1]}?v={int((WEB / m[2]).stat().st_mtime)}" if (WEB / m[2]).is_file() else m[1],
+                  page.read_text(encoding="utf-8"))
+    return HTMLResponse(html, headers=NO_CACHE)
 
 
 @app.get("/assets/{filename}")
 def asset(filename: str):
     if filename not in {"studio.js", "studio.css", "channel.js", "channel.css", "topfive.js", "topfive.css",
-                        "montages.js", "montages.css", "theme.css", "discover.js", "discover.css", "topfive-tools.js", "topfive-tools.css", "narration.js"}:
+                        "montages.js", "montages.css", "theme.css", "discover.js", "discover.css", "topfive-tools.js", "topfive-tools.css", "narration.js", "motion-control.js", "motion-control.css", "influencers.js", "influencers.css"}:
         raise HTTPException(404)
-    return FileResponse(WEB / filename)
+    return FileResponse(WEB / filename, headers=NO_CACHE)
 
 
 @app.get("/api/health")
