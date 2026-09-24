@@ -117,6 +117,34 @@ def test_tryon_flux_workflow_dresses_person_with_outfit():
     assert "identity reference" not in prompt
 
 
+def test_tryon_product_mode_holds_the_product_in_the_prompt():
+    """Modo produto: a peça não é vestida — é apresentada para a câmera."""
+    flow, _ = motion_control._tryon_flux_flow("person-ref.png", "product-ref.png", "mostre o perfume",
+                                              "9:16", "product")
+    texts = [node["inputs"]["text"] for node in flow.values() if node["class_type"] == "CLIPTextEncode"]
+    prompt = next(text for text in texts if "mostre o perfume" in text)
+    assert "product being advertised" in prompt
+    assert "showcasing it" in prompt
+    assert "clothing reference" not in prompt
+
+
+def test_tryon_prompt_defaults_to_what_the_mode_asks_for():
+    flow, _ = motion_control._tryon_flux_flow("p.png", "o.png", "", "9:16", "product")
+    texts = [node["inputs"]["text"] for node in flow.values() if node["class_type"] == "CLIPTextEncode"]
+    assert any("Present the product exactly as in image 2." in text for text in texts)
+
+
+def test_tryon_rejects_unknown_mode(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
+    response = client.post("/api/motion-control/tryon", data={"mode": "banana"}, files={
+        "video": ("motion.mp4", b"video", "video/mp4"),
+        "person": ("person.png", _png(), "image/png"),
+        "outfit": ("outfit.png", _png(), "image/png"),
+    })
+    assert response.status_code == 422
+    assert not list((tmp_path / "motion").glob("*"))
+
+
 def test_tryon_missing_person_job_is_not_found(client, tmp_path, monkeypatch):
     monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
     response = client.post("/api/motion-control/tryon", data={"person_job": "0" * 32}, files={

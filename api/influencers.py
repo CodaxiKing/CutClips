@@ -111,6 +111,12 @@ def _prompt(mode: str, description: str, has_scene_image: bool) -> str:
         return f"{base}\nImage 1 is the identity reference. Preserve the same adult person's recognizable face, hair, skin tone and body proportions. Creative direction: {description}"
     if mode == "outfit":
         return (f"{base}\nImage 1 is the person. Image 2 is the clothing reference. Change only the person's outfit to the garment in image 2, matching its cut, color, texture and details. Preserve the person's face, hair, body, pose, background and lighting as closely as possible. Additional direction: {description}")
+    if mode == "product":
+        return (f"{base}\nImage 1 is the person. Image 2 is the product being advertised. "
+                "Make the person hold the product from image 2 naturally and prominently toward the camera, "
+                "like an influencer showcasing it in an ad, keeping the product's exact appearance, label, color and details. "
+                "Preserve the person's face, hair, body, background and lighting as closely as possible. "
+                f"Additional direction: {description}")
     place = "Image 2 is the location reference. " if has_scene_image else ""
     return f"{base}\nImage 1 is the person. {place}Place the same person in the requested location. Preserve her recognizable face, hair and body proportions, with natural perspective and lighting matching the new scene. Location and action: {description}"
 

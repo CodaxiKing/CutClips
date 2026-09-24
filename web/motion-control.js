@@ -18,17 +18,18 @@
       <button type="submit" class="mc-generate" id="mcGenerate">Gerar Motion Control</button>
       <p class="mc-note">Geração local com Wan 2.2 Animate, sem créditos. Em GPUs de 8 GB cada vídeo leva vários minutos. O fundo vem da foto; o áudio vem do vídeo de movimento.</p>
     </form><form class="mc-card mc-pane" id="mcTryonForm" data-pane="tryon" hidden>
-      <h2>Influencer dançando com a sua roupa</h2>
+      <h2 id="tcTitle">Influencer dançando com a sua roupa</h2>
+      <span class="mc-seg"><button type="button" data-tc-mode="outfit" class="on">Roupa · vestir</button><button type="button" data-tc-mode="product">Produto · apresentar</button></span>
       <label class="mc-input"><strong>1 · Vídeo de dança</strong><span class="mc-file" id="tcVideoDrop"><span>Escolher vídeo MP4, WebM ou M4V</span><input name="video" type="file" accept=".mp4,.webm,.m4v,video/mp4,video/webm" required></span><small>Uma pessoa em cena, de 2 a 30 segundos. Os primeiros ~5 segundos são animados. Até 150 MB.</small></label>
       <div class="mc-input"><strong>2 · Foto da influencer</strong>
         <span class="mc-seg"><button type="button" data-person="upload" class="on">Enviar foto</button><button type="button" data-person="gallery">Usar da Influencer IA</button></span>
         <span class="mc-file" id="tcPersonDrop"><span>Escolher imagem PNG, JPG ou WebP</span><input name="person" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"></span>
         <div id="tcGallery" hidden><div class="mc-picker" id="tcPicker">Carregando gerações…</div><input type="hidden" name="person_job" value=""></div>
         <small>Prefira uma pessoa visível, com rosto e corpo claros. Também dá para usar uma imagem pronta da aba Influencer IA. Até 20 MB.</small></div>
-      <label class="mc-input"><strong>3 · Foto da roupa</strong><span class="mc-file" id="tcOutfitDrop"><span>Escolher imagem da peça</span><input name="outfit" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" required></span><small>A peça de frente e bem iluminada: é ela que a influencer vai vestir. Até 20 MB.</small></label>
-      <label class="mc-input"><strong>Descrição da roupa (opcional)</strong><textarea name="prompt" maxlength="2500">A pessoa veste a roupa da foto, mantendo rosto, cabelo e corpo.</textarea></label>
+      <label class="mc-input"><strong id="tcOutfitLabel">3 · Foto da roupa</strong><span class="mc-file" id="tcOutfitDrop"><span>Escolher imagem da peça</span><input name="outfit" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" required></span><small id="tcOutfitHint">A peça de frente e bem iluminada: é ela que a influencer vai vestir. Até 20 MB.</small></label>
+      <label class="mc-input"><strong id="tcPromptLabel">Descrição da roupa (opcional)</strong><textarea name="prompt" maxlength="2500">A pessoa veste a roupa da foto, mantendo rosto, cabelo e corpo.</textarea></label>
       <button type="submit" class="mc-generate" id="tcGenerate">Gerar com troca de roupa</button>
-      <p class="mc-note">Duas etapas locais, sem créditos: o FLUX veste a peça na foto e o Wan Animate anima com o vídeo. Primeiro a foto vestida (etapa 1), depois o vídeo (etapa 2).</p>
+      <p class="mc-note" id="tcNote">Duas etapas locais, sem créditos: o FLUX veste a peça na foto e o Wan Animate anima com o vídeo. Primeiro a foto vestida (etapa 1), depois o vídeo (etapa 2).</p>
     </form><form class="mc-card mc-pane" id="mcSpeakForm" data-pane="lipsync" hidden>
       <h2>Influencer falando</h2>
       <div class="mc-input"><strong>1 · Foto da influencer</strong>
@@ -60,6 +61,7 @@
   let displayed = '';
   let personSource = 'upload';
   let pickerLoaded = false;
+  let tcMode = 'outfit';
   let speakPersonSource = 'upload';
   let speakPickerLoaded = false;
   let speechMode = 'text';
@@ -68,7 +70,12 @@
   const stateText = {queued:'Na fila', speaking:'Gerando a voz', dressing:'Vestindo a roupa · etapa 1 de 2', uploading:'Enviando ao ComfyUI', processing:'Gerando vídeo', done:'Concluído', error:'Falhou'};
 
   function stageLabel(job) {
-    const base = stateText[job.status] || job.status;
+    let base = stateText[job.status] || job.status;
+    if (job.kind === 'tryon' && job.mode === 'product') {
+      if (job.status === 'dressing') base = 'Aplicando o produto · etapa 1 de 2';
+      if (job.status === 'uploading' || job.status === 'processing') base = `${stateText[job.status]} · etapa 2 de 2`;
+      return base;
+    }
     return job.kind === 'tryon' && (job.status === 'uploading' || job.status === 'processing')
       ? `${base} · etapa 2 de 2` : base;
   }
@@ -123,6 +130,27 @@
     }
   }
   tryonForm.querySelectorAll('[data-person]').forEach(btn => btn.addEventListener('click', () => setPersonMode(btn.dataset.person)));
+
+  function setTcMode(mode) {
+    tcMode = mode;
+    const product = mode === 'product';
+    tryonForm.querySelectorAll('[data-tc-mode]').forEach(btn => btn.classList.toggle('on', btn.dataset.tcMode === mode));
+    root.querySelector('#tcTitle').textContent = product ? 'Influencer apresentando o seu produto' : 'Influencer dançando com a sua roupa';
+    root.querySelector('#tcOutfitLabel').textContent = product ? '3 · Foto do produto' : '3 · Foto da roupa';
+    root.querySelector('#tcOutfitDrop').querySelector('span').textContent = product ? 'Escolher imagem do produto' : 'Escolher imagem da peça';
+    root.querySelector('#tcOutfitHint').textContent = product
+      ? 'O produto de frente, com rótulo legível: é ele que a influencer vai mostrar na câmera. Até 20 MB.'
+      : 'A peça de frente e bem iluminada: é ela que a influencer vai vestir. Até 20 MB.';
+    root.querySelector('#tcPromptLabel').textContent = product ? 'Descrição do produto (opcional)' : 'Descrição da roupa (opcional)';
+    tryonForm.elements.prompt.value = product
+      ? 'A pessoa apresenta o produto da foto para a câmera, segurando-o naturalmente, mantendo rosto e cabelo.'
+      : 'A pessoa veste a roupa da foto, mantendo rosto, cabelo e corpo.';
+    root.querySelector('#tcGenerate').textContent = product ? 'Gerar com o produto' : 'Gerar com troca de roupa';
+    root.querySelector('#tcNote').textContent = product
+      ? 'Duas etapas locais, sem créditos: o FLUX coloca o produto na mão da influencer e o Wan Animate anima com o vídeo.'
+      : 'Duas etapas locais, sem créditos: o FLUX veste a peça na foto e o Wan Animate anima com o vídeo. Primeiro a foto vestida (etapa 1), depois o vídeo (etapa 2).';
+  }
+  tryonForm.querySelectorAll('[data-tc-mode]').forEach(btn => btn.addEventListener('click', () => setTcMode(btn.dataset.tcMode)));
 
   async function loadPicker() {
     if (pickerLoaded) return;
@@ -280,7 +308,7 @@
       for (const job of data.jobs) {
         const row = document.createElement('div'); row.className = 'mc-job';
         const label = document.createElement('span');
-        const origin = job.kind === 'tryon' ? `Trocar roupa · ${job.outfit_name || 'Roupa'}`
+        const origin = job.kind === 'tryon' ? `${job.mode === 'product' ? 'Produto' : 'Trocar roupa'} · ${job.outfit_name || 'Imagem'}`
           : job.kind === 'lipsync' ? `Falando · ${job.audio_name || 'texto'}`
           : (job.image_name || 'Imagem');
         label.textContent = `${origin} · ${stageLabel(job)}`;
@@ -300,13 +328,15 @@
     displayed = key;
     result.replaceChildren(); error.hidden = true;
     if (job.kind === 'tryon' && job.composed) {
+      const product = job.mode === 'product';
       const box = document.createElement('div'); box.className = 'mc-composed';
       const img = document.createElement('img');
       img.src = `/api/motion-control/${job.id}/composed`;
-      img.alt = 'Influencer já com a roupa escolhida';
+      img.alt = product ? 'Influencer já com o produto escolhido' : 'Influencer já com a roupa escolhida';
       const caption = document.createElement('span');
-      caption.textContent = job.status === 'done' ? 'Etapa 1 · a influencer já estava com a roupa'
-                                                  : 'Etapa 1 · a influencer está com a roupa';
+      caption.textContent = product
+        ? (job.status === 'done' ? 'Etapa 1 · a influencer já estava com o produto' : 'Etapa 1 · a influencer está com o produto')
+        : (job.status === 'done' ? 'Etapa 1 · a influencer já estava com a roupa' : 'Etapa 1 · a influencer está com a roupa');
       box.append(img, caption); result.append(box);
     }
     if (job.status === 'done') {
@@ -362,12 +392,13 @@
       if (personSource === 'upload') body.append('person', tcPerson.files[0]);
       else body.append('person_job', tcPersonJob.value);
       body.append('prompt', tryonForm.elements.prompt.value);
+      body.append('mode', tcMode);
       const response = await fetch('/api/motion-control/tryon', {method:'POST', body});
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível iniciar a geração.');
       current = data.id; show(data); await refresh();
     } catch (exc) { error.textContent = exc.message; error.hidden = false; }
-    finally { button.disabled = false; button.textContent = 'Gerar com troca de roupa'; }
+    finally { button.disabled = false; button.textContent = tcMode === 'product' ? 'Gerar com o produto' : 'Gerar com troca de roupa'; }
   });
 
   speakForm.addEventListener('submit', async event => {

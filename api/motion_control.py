@@ -254,11 +254,12 @@ def _run(job_id: str, prompt: str) -> None:
         _save(job_id, status="error", error=str(exc)[:1000])
 
 
-def _tryon_flux_flow(person: str, outfit: str, description: str, aspect: str) -> tuple[dict, str]:
-    """Etapa 1: a pessoa da imagem 1 passa a vestir a peça da imagem 2 (mesmo prompt do modo outfit."""
+def _tryon_flux_flow(person: str, outfit: str, description: str, aspect: str, mode: str = "outfit") -> tuple[dict, str]:
+    """Etapa 1: a pessoa da imagem 1 veste a peça (modo roupa) ou apresenta o produto (modo produto) na imagem 2."""
     from api.influencers import _prompt  # import tardio: api.influencers já importa este módulo
-    text = description.strip() or "Match the garment exactly."
-    return flux_image_workflow(_prompt("outfit", text, False), aspect, "1K", [person, outfit])
+    text = description.strip() or ("Present the product exactly as in image 2."
+                                   if mode == "product" else "Match the garment exactly.")
+    return flux_image_workflow(_prompt(mode, text, False), aspect, "1K", [person, outfit])
 
 
 def _person_source(job_id: str) -> Path:
@@ -267,8 +268,8 @@ def _person_source(job_id: str) -> Path:
     return _source_image(job_id)
 
 
-def _run_tryon(job_id: str, description: str) -> None:
-    """Etapa 1: FLUX veste a roupa na foto. Etapa 2: Wan Animate anima a foto vestida."""
+def _run_tryon(job_id: str, description: str, mode: str = "outfit") -> None:
+    """Etapa 1: FLUX veste a roupa (ou aplica o produto) na foto. Etapa 2: Wan Animate anima."""
     from api.influencers import _reference  # import tardio: api.influencers já importa este módulo
     folder = ROOT / job_id
     try:
@@ -290,7 +291,7 @@ def _run_tryon(job_id: str, description: str) -> None:
             outfit_file = next(path for path in folder.glob("outfit.*") if path.stem == "outfit")
             person = _upload(client, _reference(person_file))
             outfit = _upload(client, _reference(outfit_file))
-            flow, output_id = _tryon_flux_flow(person, outfit, description, _aspect_for(media.width, media.height))
+            flow, output_id = _tryon_flux_flow(person, outfit, description, _aspect_for(media.width, media.height), mode)
             prompt_id = _submit(client, flow, job_id)
             _save(job_id, status="dressing", prompt_id=prompt_id)
             entry = _await_entry(client, prompt_id, output_id, output_keys=("images",), minutes=45,
@@ -482,15 +483,17 @@ async def create(
 async def create_tryon(
     video: UploadFile = File(...), outfit: UploadFile = File(...),
     person: UploadFile | None = File(None), person_job: str = Form(""),
-    prompt: str = Form(""),
+    prompt: str = Form(""), mode: str = Form("outfit"),
 ):
-    """Três entradas: vídeo de dança, foto da influencer (enviada ou da Influencer IA) e foto da roupa."""
+    """Três entradas: vídeo de dança, foto da influencer (enviada ou da Influencer IA) e foto da roupa ou do produto."""
     from api.influencers import _copy_image  # import tardio: api.influencers já importa este módulo
 
+    if mode not in {"outfit", "product"}:
+        raise HTTPException(422, "Modo inválido: use outfit (vestir) ou product (apresentar)")
     if Path(video.filename or "").suffix.lower() not in VIDEO_EXT:
         raise HTTPException(422, "Use um vídeo MP4, WebM ou M4V")
     if Path(outfit.filename or "").suffix.lower() not in IMAGE_EXT:
-        raise HTTPException(422, "A roupa precisa ser uma imagem PNG, JPG ou WebP")
+        raise HTTPException(422, "A foto da roupa ou do produto precisa ser PNG, JPG ou WebP")
     has_person = bool(person and person.filename)
     if has_person and Path(person.filename).suffix.lower() not in IMAGE_EXT:
         raise HTTPException(422, "A foto da influencer precisa ser PNG, JPG ou WebP")
@@ -499,7 +502,8 @@ async def create_tryon(
     if len(prompt) > MAX_PROMPT:
         raise HTTPException(422, "Descrição longa demais")
     source = None if has_person else _person_source(person_job.strip())
-    description = prompt.strip() or "Match the garment exactly."
+    description = prompt.strip() or ("Present the product exactly as in image 2."
+                                     if mode == "product" else "Match the garment exactly.")
     job_id = uuid.uuid4().hex
     folder = ROOT / job_id
     folder.mkdir(parents=True, exist_ok=False)
@@ -524,12 +528,13 @@ async def create_tryon(
         folder.rmdir()
         raise
     (folder / "status.json").write_text(json.dumps({
-        "id": job_id, "kind": "tryon", "status": "queued", "model": "FLUX + Wan local", "created_at": time.time(),
+        "id": job_id, "kind": "tryon", "mode": mode, "status": "queued", "model": "FLUX + Wan local",
+        "created_at": time.time(),
         "image_name": Path(person.filename).name if has_person else "Influencer IA",
         "outfit_name": Path(outfit.filename).name, "video_name": Path(video.filename).name,
         "description": description[:160],
     }, ensure_ascii=False), encoding="utf-8")
-    threading.Thread(target=_run_tryon, args=(job_id, description), daemon=True).start()
+    threading.Thread(target=_run_tryon, args=(job_id, description, mode), daemon=True).start()
     return _record(job_id)
 
 
