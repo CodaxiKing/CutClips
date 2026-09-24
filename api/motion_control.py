@@ -43,6 +43,8 @@ MAX_PROMPT = 2500
 MAX_SPEECH_CHARS = 1000
 MAX_SPEECH_SECONDS = 60
 MAX_REPLY = 2000
+MAX_REPLY_BATCH = 10
+MAX_PRICE = 40
 DEFAULT_MOTION_PROMPT = "A pessoa da imagem executa os movimentos do vídeo de referência."
 COMPOSED_NAME = "person-outfit.png"
 # Etapa 1 da troca de roupa: FLUX veste a peça na foto antes do Wan animar.
@@ -352,6 +354,120 @@ def _add_audio(video: Path, motion: Path) -> None:
     mixed.replace(video)
 
 
+_subtitles_cache: bool | None = None
+
+
+def _subtitles_ready() -> bool:
+    """O ffmpeg desta máquina tem o filtro subtitles (libass) para queimar o card de preço?"""
+    global _subtitles_cache
+    if _subtitles_cache is None:
+        try:
+            run = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                                 capture_output=True, text=True, timeout=30)
+            _subtitles_cache = "subtitles" in (run.stdout or "")
+        except (OSError, subprocess.SubprocessError):
+            _subtitles_cache = False
+    return _subtitles_cache
+
+
+def _price_ass(text: str, width: int, height: int) -> str:
+    """Card de preço em pílula (#ffdd45), fixo no topo do vídeo, gerado como ASS local.
+
+    Uma única linha de diálogo: primeiro o desenho da pílula (traço em bézier com
+    cantos redondos, escala 100 = pixels do PlayRes) e depois o texto por cima.
+    """
+    safe = "".join(" " if ch in "{}\\\n\r" else ch for ch in text.strip())[:MAX_PRICE] or "Preço"
+    pill_h = max(40, round(height * 0.062))
+    radius = pill_h / 2
+    font = max(20, round(pill_h * 0.58))
+    pill_w = min(width - 16, max(round(font * 0.62 * len(safe)) + pill_h, round(pill_h * 2.4)))
+    k = 0.5523 * radius
+    x = (width - pill_w) // 2
+    y = round(height * 0.045)
+    # Contorno da pílula: retângulo + duas semicíferas, em sentido horário (preenchimento).
+    path = (f"m {radius:.0f} 0 l {pill_w - radius:.0f} 0 "
+            f"b {pill_w - radius + k:.1f} 0 {pill_w:.1f} {radius - k:.1f} {pill_w:.1f} {radius:.1f} "
+            f"l {pill_w:.1f} {pill_h - radius:.1f} "
+            f"b {pill_w:.1f} {pill_h - radius + k:.1f} {pill_w - radius + k:.1f} {pill_h:.1f} "
+            f"{pill_w - radius:.0f} {pill_h:.0f} "
+            f"l {radius:.0f} {pill_h:.0f} "
+            f"b {radius - k:.1f} {pill_h:.0f} 0 {pill_h - radius + k:.1f} 0 {pill_h - radius:.1f} "
+            f"l 0 {radius:.1f} b 0 {radius - k:.1f} {radius - k:.1f} 0 {radius:.0f} 0")
+    cx, cy = x + pill_w // 2, y + pill_h // 2
+    return (f"[Script Info]\nScriptType: v4.00+\nPlayResX: {width}\nPlayResY: {height}\n"
+            "WrapStyle: 0\nScaledBorderAndShadow: yes\n\n"
+            "[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+            "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
+            "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+            f"Style: Price,Arial,{font},&H001A1A1A&,&H001A1A1A&,&H00000000&,&H00000000&,"
+            "-1,0,0,0,100,100,0,0,1,0,0,8,20,20,20,1\n\n"
+            "[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+            f"Dialogue: 0,0:00:00.00,0:09:59.99,Price,,0,0,0,,{{\\an7\\pos({x},{y})\\p1\\fscx100\\fscy100"
+            f"\\bord0\\shad0\\1c&H45DDFF&}}{path}{{\\p0}}{{\\an8\\pos({cx},{cy})\\fscx100\\fscy100"
+            f"\\bord0\\shad0\\1c&H1A1A1A&}}{safe}\n")
+
+
+def _burn_price(folder: Path, video: Path, price: str) -> None:
+    """Queima o card de preço no vídeo com ffmpeg + ASS local (o preço.ass fica na pasta).
+
+    O marcador `arquivo.mp4.priced` torna a operação idempotente: o retry não requeima
+    um vídeo já pronto (e ainda assim o preço, se faltar, é aplicado depois da retomada).
+    """
+    marker = folder / (video.name + ".priced")
+    if marker.exists():
+        return
+    media = probe(video)
+    (folder / "price.ass").write_text(_price_ass(price, media.width, media.height), encoding="utf-8")
+    burned = video.with_name(video.stem + "-priced.mp4")
+    try:
+        # Caminho relativo + cwd: evita escapar barra e dois-pontos no filtro do Windows.
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", video.name,
+                        "-vf", "subtitles=price.ass", "-c:a", "copy", burned.name],
+                       cwd=folder, check=True, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        burned.unlink(missing_ok=True)
+        detail = (exc.stderr or b"").decode("utf-8", "replace").strip()[-300:]
+        raise RuntimeError(f"ffmpeg não conseguiu queimar o preço no vídeo{': ' + detail if detail else ''}") from exc
+    burned.replace(video)
+    (folder / (video.name + ".priced")).touch()
+
+
+def _voiced_command(result: Path, speech: Path, target: Path, looped: bool, has_audio: bool) -> list[str]:
+    """Comando ffmpeg do voiced: a fala inteira por cima da dança, fundo abafado enquanto ela fala."""
+    padded = "" if looped else ",apad"
+    if has_audio:
+        graph = ("[0:a]aformat=channel_layouts=stereo,volume=0.30[bg];"
+                 f"[1:a]aformat=channel_layouts=stereo{padded}[vo0];"
+                 "[vo0]asplit=2[vo][sc];"
+                 "[bg][sc]sidechaincompress=threshold=0.01:ratio=16:attack=8:release=500[duck];"
+                 "[duck][vo]amix=inputs=2:duration=shortest:normalize=0[a]")
+    else:
+        graph = f"[1:a]aformat=channel_layouts=stereo{padded}[a]"
+    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"]
+    if looped:
+        # Fala mais longa que a dança: o vídeo repete até o fim da voz.
+        command += ["-stream_loop", "-1"]
+    command += ["-i", str(result), "-i", str(speech), "-filter_complex", graph,
+                "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-crf", "16", "-c:a", "aac", "-b:a", "160k", "-shortest", str(target)]
+    return command
+
+
+def _make_voiced(result: Path, speech: Path, target: Path) -> None:
+    """Dança + voz de venda em segundos (ffmpeg puro): a prévia barata do lip-sync de vídeo."""
+    video, voice = probe(result), probe(speech)
+    command = _voiced_command(result, speech, target, voice.duration > video.duration + 0.05,
+                              video.has_audio)
+    try:
+        subprocess.run(command, check=True, capture_output=True)
+    except subprocess.CalledProcessError as exc:
+        target.unlink(missing_ok=True)
+        detail = (exc.stderr or b"").decode("utf-8", "replace").strip()[-300:]
+        raise RuntimeError(f"ffmpeg não conseguiu misturar a voz sobre a dança{': ' + detail if detail else ''}") from exc
+
+
 def _run(job_id: str, prompt: str) -> None:
     folder = ROOT / job_id
     result = folder / "result.mp4"
@@ -614,7 +730,8 @@ def _run_lipsync(job_id: str, text: str, voice: str, reply_to: str = "") -> None
 
 
 def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
-                 benefit: str, cta: str, script: str, refine: bool = False) -> None:
+                 benefit: str, cta: str, script: str, refine: bool = False,
+                 price: str = "") -> None:
     """Dois vídeos: voz primeiro (falha em segundos), FLUX se houver produto, dança e lip-sync."""
     from api.influencers import _reference  # import tardio: api.influencers já importa este módulo
     folder = ROOT / job_id
@@ -623,13 +740,19 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
     result = folder / "result.mp4"
     talking = folder / "talking.mp4"
     dance_talk = folder / "dance_talk.mp4"
+    voiced = folder / "voiced.mp4"
+    outputs = (result, voiced, talking, dance_talk)
     # Cada estágio tem a sua bandeira: a retomada pula o que já terminou, e o
     # lip-sync sobre o vídeo de dança é uma terceira saída, só com fluxo declarado.
     pending_talk = not _stage_done(job_id, "done_talk", talking)
+    pending_voiced = not _stage_done(job_id, "done_voiced", voiced)
     pending_dance_talk = _custom_lipsync_video() and not _stage_done(job_id, "done_dance_talk", dance_talk)
+    # Card de preço: marcador por arquivo, então a retomada só queima o que faltou.
+    pending_price = bool(price) and any(output.is_file() and not (folder / (output.name + ".priced")).exists()
+                                        for output in outputs)
     try:
         _check_cancel(job_id)
-        if not pending_talk and not pending_dance_talk:
+        if not pending_talk and not pending_dance_talk and not pending_voiced and not pending_price:
             _finish(job_id)
             return
         with httpx.Client(base_url=_base_url(), timeout=httpx.Timeout(60, read=180)) as client:
@@ -717,6 +840,12 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
                 _add_audio(result, prepared)
                 _save(job_id, status="talking", dance_ready=True, done_dance=True)
 
+            # Terceira entrega em segundos: a dança com a voz de venda por cima
+            # (ffmpeg puro) — vem antes do lip-sync para o usuário já ver algo útil.
+            if pending_voiced:
+                _make_voiced(result, speech, voiced)
+                _save(job_id, voiced=True, done_voiced=True, progress=None)
+
             # Lip-sync -- a segunda metade: a mesma cara falando o roteiro de venda.
             if pending_talk:
                 image = _upload(client, source_image)
@@ -745,6 +874,14 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
                                              "Verifique o nó SaveVideo.")
                 _stream(client, entry, dance_talk, MAX_RESULT, "O vídeo gerado excede 600 MB", job_id=job_id)
                 _save(job_id, dance_talk=True, done_dance_talk=True)
+
+            # Card de preço por último: o result é entrada do voiced e do dance_talk,
+            # e queimar cedo deixaria a pílula impressa duas vezes no vídeo final.
+            if price:
+                _save(job_id, progress=None)
+                for output in outputs:
+                    if output.is_file():
+                        _burn_price(folder, output, price)
             _finish(job_id)
     except Exception as exc:
         _fail(job_id, exc)
@@ -922,7 +1059,11 @@ async def create_lipsync(
     audio: UploadFile | None = File(None), text: str = Form(""), voice: str = Form(""),
     reply_to: str = Form(""),
 ):
-    """A influencer fala: áudio enviado, texto escrito ou resposta a comentários (IA/template)."""
+    """A influencer fala: áudio enviado, texto escrito ou resposta a comentários (IA/template).
+
+    Uma linha no campo de comentários é um comentário; várias linhas viram um lote —
+    um job por comentário, até MAX_REPLY_BATCH.
+    """
     from api.influencers import _copy_image  # import tardio: api.influencers já importa este módulo
 
     has_person = bool(person and person.filename)
@@ -941,48 +1082,68 @@ async def create_lipsync(
         raise HTTPException(422, f"O texto pode ter no máximo {MAX_SPEECH_CHARS} caracteres")
     if len(reply) > MAX_REPLY:
         raise HTTPException(422, f"Os comentários podem ter no máximo {MAX_REPLY} caracteres")
+    # Uma linha = um comentário; várias linhas viram um lote de jobs (um por linha).
+    lines = [line.strip() for line in reply.splitlines() if line.strip()]
+    if len(lines) > MAX_REPLY_BATCH:
+        raise HTTPException(422, f"O lote de respostas aceita no máximo {MAX_REPLY_BATCH} comentários "
+                                 "— cole um comentário por linha")
     source = None if has_person else _person_source(person_job.strip())
     # Sem voz escolhida, o TTS usa o perfil salvo como o da influencer.
     chosen_voice = voice.strip() or (influencer_voice()["voice"] if not has_audio else "")
-    job_id = uuid.uuid4().hex
-    folder = ROOT / job_id
-    folder.mkdir(parents=True, exist_ok=False)
+    # Lote só no modo resposta: com áudio ou texto escrito, continua um job só.
+    batch = lines if (reply and not has_audio and not speech) else [reply]
+    person_bytes = source.read_bytes() if source is not None else None
+    jobs: list[tuple[str, str, str, str]] = []
+    folders: list[Path] = []
     try:
-        if source is not None:
-            (folder / "person.png").write_bytes(source.read_bytes())
-        elif await _copy_image(person, folder, "person") is None:
-            raise HTTPException(422, "Envie a foto da influencer ou escolha uma geração da Influencer IA")
-        if has_audio:
-            speech_path = folder / f"speech{Path(audio.filename).suffix.lower()}"
-            await _copy_upload(audio, speech_path, MAX_AUDIO)
-            try:
-                seconds = audio_duration(speech_path)
-            except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
-                raise HTTPException(422, "O áudio enviado não pôde ser lido") from exc
-            if not 1 <= seconds <= MAX_SPEECH_SECONDS:
-                raise HTTPException(422, f"O áudio precisa ter entre 1 e {MAX_SPEECH_SECONDS} segundos")
+        for comment in batch:
+            job_id = uuid.uuid4().hex
+            folder = ROOT / job_id
+            folder.mkdir(parents=True, exist_ok=False)
+            folders.append(folder)
+            if person_bytes is None:
+                if await _copy_image(person, folder, "person") is None:
+                    raise HTTPException(422, "Envie a foto da influencer ou escolha uma geração da Influencer IA")
+                # Lido uma vez e reaproveitado: o upload só pode ser lido no primeiro job.
+                person_bytes = (folder / "person.png").read_bytes()
+            else:
+                (folder / "person.png").write_bytes(person_bytes)
+            if has_audio:  # o lote é só para comentários: aqui existe um job só.
+                speech_path = folder / f"speech{Path(audio.filename).suffix.lower()}"
+                await _copy_upload(audio, speech_path, MAX_AUDIO)
+                try:
+                    seconds = audio_duration(speech_path)
+                except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                    raise HTTPException(422, "O áudio enviado não pôde ser lido") from exc
+                if not 1 <= seconds <= MAX_SPEECH_SECONDS:
+                    raise HTTPException(422, f"O áudio precisa ter entre 1 e {MAX_SPEECH_SECONDS} segundos")
+            # Parâmetros completos (sem truncar) para o retry retomar o mesmo job.
+            run_text = "" if has_audio else speech
+            run_reply = "" if has_audio or run_text else comment
+            (folder / "status.json").write_text(json.dumps({
+                "id": job_id, "kind": "lipsync", "status": "queued", "model": "Lip-sync local",
+                "created_at": time.time(),
+                "image_name": Path(person.filename).name if has_person else "Influencer IA",
+                "audio_name": Path(audio.filename).name if has_audio else "",
+                "description": speech[:160] if not has_audio else "",
+                "reply": run_reply[:160],
+                "voice": chosen_voice if not has_audio else "",
+                "run_text": run_text, "run_reply": run_reply,
+            }, ensure_ascii=False), encoding="utf-8")
+            jobs.append((job_id, run_text, chosen_voice, run_reply))
     except Exception:
-        for path in folder.iterdir():
-            path.unlink()
-        folder.rmdir()
+        for folder in folders:
+            for path in folder.iterdir():
+                path.unlink()
+            folder.rmdir()
         raise
-    # Parâmetros completos (sem truncar) para o retry retomar o mesmo job.
-    run_text = "" if has_audio else speech
-    run_reply = "" if has_audio or run_text else reply
-    (folder / "status.json").write_text(json.dumps({
-        "id": job_id, "kind": "lipsync", "status": "queued", "model": "Lip-sync local",
-        "created_at": time.time(),
-        "image_name": Path(person.filename).name if has_person else "Influencer IA",
-        "audio_name": Path(audio.filename).name if has_audio else "",
-        "description": speech[:160] if not has_audio else "",
-        "reply": reply[:160] if reply and not speech else "",
-        "voice": chosen_voice if not has_audio else "",
-        "run_text": run_text, "run_reply": run_reply,
-    }, ensure_ascii=False), encoding="utf-8")
-    threading.Thread(target=_run_lipsync,
-                     args=(job_id, run_text, chosen_voice, run_reply),
-                     daemon=True).start()
-    return _record(job_id)
+    # Threads só depois de todas as pastas prontas: falha no meio do lote não
+    # deixa um job rodando com a pasta já apagada.
+    for args in jobs:
+        threading.Thread(target=_run_lipsync, args=args, daemon=True).start()
+    records = [_record(job_id) for job_id, _, _, _ in jobs]
+    # Um comentário: resposta única (contrato antigo). Lote: os N jobs no retorno.
+    return records[0] if len(records) == 1 else {**records[0], "batch": records}
 
 
 @router.post("/oneshot")
@@ -992,7 +1153,7 @@ async def create_oneshot(
     product: UploadFile | None = File(None),
     product_name: str = Form(...), benefit: str = Form(""), cta: str = Form(""),
     script: str = Form(""), mode: str = Form("product"), prompt: str = Form(""),
-    refine: bool = Form(False),
+    refine: bool = Form(False), price: str = Form(""),
 ):
     """Dois vídeos num job: a influencer dançando com o produto e ela falando o roteiro de venda."""
     from api.influencers import _copy_image  # import tardio: api.influencers já importa este módulo
@@ -1010,6 +1171,13 @@ async def create_oneshot(
         raise HTTPException(422, f"O roteiro pode ter no máximo {MAX_SPEECH_CHARS} caracteres")
     if len(prompt) > MAX_PROMPT:
         raise HTTPException(422, "Descrição longa demais")
+    # Preço queimado nos vídeos: valida aqui, antes de qualquer render (falha cedo).
+    price_value = " ".join(price.split())
+    if len(price_value) > MAX_PRICE:
+        raise HTTPException(422, f"O preço pode ter no máximo {MAX_PRICE} caracteres")
+    if price_value and not _subtitles_ready():
+        raise HTTPException(503, "Seu ffmpeg não tem o filtro subtitles (libass): remova o preço "
+                                 "ou instale um ffmpeg completo")
     has_person = bool(person and person.filename)
     if has_person and Path(person.filename).suffix.lower() not in IMAGE_EXT:
         raise HTTPException(422, "A foto da influencer precisa ser PNG, JPG ou WebP")
@@ -1066,10 +1234,11 @@ async def create_oneshot(
         "video_name": Path(video.filename).name,
         "product_name": name, "description": description[:160], "run_prompt": description,
         "benefit": benefit.strip(), "cta": cta.strip(), "script": script,
-        "refine": bool(refine),
+        "refine": bool(refine), "price": price_value,
     }, ensure_ascii=False), encoding="utf-8")
     threading.Thread(target=_run_oneshot, args=(job_id, description, mode, name,
-                                                benefit.strip(), cta.strip(), script, bool(refine)),
+                                                benefit.strip(), cta.strip(), script, bool(refine),
+                                                price_value),
                      daemon=True).start()
     return _record(job_id)
 
@@ -1137,7 +1306,7 @@ def retry(job_id: str):
             target, args = _run_oneshot, (job_id, job.get("run_prompt", ""), job.get("mode", "product"),
                                           job.get("product_name", ""), job.get("benefit", ""),
                                           job.get("cta", ""), job.get("script", ""),
-                                          bool(job.get("refine")))
+                                          bool(job.get("refine")), job.get("price", ""))
         else:
             target, args = _run, (job_id, job.get("run_prompt", DEFAULT_MOTION_PROMPT))
     threading.Thread(target=target, args=args, daemon=True).start()
@@ -1185,6 +1354,22 @@ def dance_talk_download(job_id: str):
         raise HTTPException(404, "Vídeo com lip-sync na dança ainda não disponível")
     return FileResponse(ROOT / job_id / "dance_talk.mp4", media_type="video/mp4",
                         filename=f"venda-dancando-falando-{job_id[:8]}.mp4")
+
+
+@router.get("/{job_id}/voiced")
+def voiced_view(job_id: str):
+    """Dança com a voz de venda por cima (fundo abafado), pronta em segundos com ffmpeg."""
+    if not job_id.isalnum() or not (ROOT / job_id / "voiced.mp4").is_file():
+        raise HTTPException(404, "Vídeo com a voz ainda não disponível")
+    return FileResponse(ROOT / job_id / "voiced.mp4", media_type="video/mp4")
+
+
+@router.get("/{job_id}/voiced/download")
+def voiced_download(job_id: str):
+    if not job_id.isalnum() or not (ROOT / job_id / "voiced.mp4").is_file():
+        raise HTTPException(404, "Vídeo com a voz ainda não disponível")
+    return FileResponse(ROOT / job_id / "voiced.mp4", media_type="video/mp4",
+                        filename=f"venda-dancando-voz-{job_id[:8]}.mp4")
 
 
 @router.get("/{job_id}/download")

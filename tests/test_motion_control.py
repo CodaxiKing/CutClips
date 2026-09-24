@@ -358,13 +358,13 @@ def test_retry_reruns_each_kind_with_its_own_runner(client, tmp_path, monkeypatc
                run_text="Tudo ótimo", voice="Maria", run_reply="")
     client.post(f"/api/motion-control/{'e' * 32}/retry")
     _write_job(root, "f" * 32, kind="oneshot", status="error", mode="product", refine=True,
-               run_prompt="descreva", product_name="Sérum", benefit="b", cta="c", script="s")
+               price="R$ 60,00", run_prompt="descreva", product_name="Sérum", benefit="b", cta="c", script="s")
     client.post(f"/api/motion-control/{'f' * 32}/retry")
     _write_job(root, "1" * 32, status="error", run_prompt="dance prompt")
     client.post(f"/api/motion-control/{'1' * 32}/retry")
 
     assert calls[0] == ("lipsync", ("e" * 32, "Tudo ótimo", "Maria", ""))
-    assert calls[1] == ("oneshot", ("f" * 32, "descreva", "product", "Sérum", "b", "c", "s", True))
+    assert calls[1] == ("oneshot", ("f" * 32, "descreva", "product", "Sérum", "b", "c", "s", True, "R$ 60,00"))
     assert calls[2] == ("motion", ("1" * 32, "dance prompt"))
 
 
@@ -568,3 +568,115 @@ def test_oneshot_fails_early_when_the_video_lipsync_flow_is_unreadable(client, t
     detail = response.json()["detail"]
     assert "quebrado.json" in detail and "CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW" in detail
     assert not list(root.glob("*"))
+
+
+# --------------------------------------------------------------------------- #
+# Fase 4: voz sobre a dança, card de preço queimado e lote de respostas
+# --------------------------------------------------------------------------- #
+
+def test_price_ass_builds_a_pill_with_the_price_text():
+    ass = motion_control._price_ass("R$ 49,90", 720, 1280)
+    assert "PlayResX: 720" in ass and "PlayResY: 1280" in ass
+    assert "\\1c&H45DDFF&" in ass      # #ffdd45 em BGR (o \1c leva sem o alpha)
+    assert "\\1c&H1A1A1A&" in ass      # texto escuro sobre a pílula
+    assert "R$ 49,90" in ass
+    assert "\\p1" in ass and "\\p0" in ass   # desenho da pílula e texto na mesma linha
+    assert ass.count("Dialogue:") == 1        # uma linha só: sobreposição garantida
+    long = motion_control._price_ass("R$ " + "9" * 60, 720, 1280)
+    expected = ("R$ " + "9" * 60)[:motion_control.MAX_PRICE]
+    assert expected in long            # cortado no limite de caracteres
+    assert expected + "9" not in long
+
+
+def test_voiced_command_ducks_the_dance_audio_and_follows_the_speech(tmp_path):
+    result, speech = tmp_path / "result.mp4", tmp_path / "speech.wav"
+    target = tmp_path / "voiced.mp4"
+    looped = motion_control._voiced_command(result, speech, target, looped=True, has_audio=True)
+    graph = looped[looped.index("-filter_complex") + 1]
+    assert "sidechaincompress" in graph and "volume=0.30" in graph   # fundo abafado sob a voz
+    assert "-stream_loop" in looped        # fala mais longa que a dança: o vídeo repete
+    assert looped[-1] == str(target)
+    plain = motion_control._voiced_command(result, speech, target, looped=False, has_audio=False)
+    graph2 = plain[plain.index("-filter_complex") + 1]
+    assert "-stream_loop" not in plain
+    assert "sidechaincompress" not in graph2   # sem áudio na dança, a voz entra limpa
+    assert "apad" in graph2                    # fala curta: dura até o fim do vídeo
+
+
+def test_oneshot_stores_the_price_and_retry_passes_it_on(client, tmp_path, monkeypatch):
+    root = _isolated_root(tmp_path, monkeypatch)
+    monkeypatch.setattr(motion_control, "_subtitles_ready", lambda: True)
+    monkeypatch.setattr(motion_control, "probe",
+                        lambda path: SimpleNamespace(duration=5, width=720, height=1280, has_audio=True))
+    lipsync = tmp_path / "lipsync.json"
+    lipsync.write_text(json.dumps(_lipsync_template()), encoding="utf-8")
+    monkeypatch.setenv("CUTCLIPS_LIPSYNC_WORKFLOW", str(lipsync))
+    monkeypatch.delenv("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW", raising=False)
+    seen = []
+    monkeypatch.setattr(motion_control, "_run_oneshot", lambda *args: seen.append(args))
+    created = client.post("/api/motion-control/oneshot",
+                          data={"product_name": "Sérum Vitamina C", "price": "  R$ 49,90  "},
+                          files=_oneshot_files())
+    assert created.status_code == 200
+    job = created.json()
+    assert job["price"] == "R$ 49,90"
+    assert seen and seen[-1][-1] == "R$ 49,90"
+    # Erro depois + retry: o preço escolhido volta junto.
+    motion_control._save(job["id"], status="error")
+    seen.clear()
+    assert client.post(f"/api/motion-control/{job['id']}/retry").status_code == 200
+    assert seen and seen[-1][-1] == "R$ 49,90"
+
+
+def test_oneshot_rejects_bad_prices_before_any_render(client, tmp_path, monkeypatch):
+    """Preço longo demais (422) ou ffmpeg sem libass (503): falha cedo, sem pasta criada."""
+    monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
+    monkeypatch.setattr(motion_control, "_subtitles_ready", lambda: False)
+    long_price = client.post("/api/motion-control/oneshot",
+                             data={"product_name": "Sérum Vitamina C", "price": "R$ " + "9" * 40},
+                             files=_oneshot_files())
+    assert long_price.status_code == 422
+    assert "preço" in long_price.json()["detail"].lower()
+    without_filter = client.post("/api/motion-control/oneshot",
+                                 data={"product_name": "Sérum Vitamina C", "price": "R$ 49,90"},
+                                 files=_oneshot_files())
+    assert without_filter.status_code == 503
+    assert "subtitles" in without_filter.json()["detail"]
+    assert not list((tmp_path / "motion").glob("*"))
+
+
+def test_lipsync_batch_creates_one_job_per_comment_line(client, tmp_path, monkeypatch):
+    """Uma linha = um comentário = um job; o retorno traz os N jobs e o primeiro deles."""
+    root = _isolated_root(tmp_path, monkeypatch)
+    monkeypatch.setattr(motion_control, "_run_lipsync", lambda *args: None)
+    response = client.post("/api/motion-control/lipsync",
+                           data={"reply_to": "obrigada!\nadorei o sérum\ncomprei ontem\nvoltei sempre"},
+                           files={"person": ("person.png", _png(), "image/png")})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["batch"]) == 4
+    assert data["id"] == data["batch"][0]["id"]
+    folders = [path for path in root.iterdir() if path.is_dir()]
+    assert len(folders) == 4
+    # Cada job guarda o seu comentário, para o retry responder de novo.
+    replies = {json.loads((path / "status.json").read_text(encoding="utf-8"))["run_reply"]
+               for path in folders}
+    assert replies == {"obrigada!", "adorei o sérum", "comprei ontem", "voltei sempre"}
+    # Todos com a mesma foto da influencer (o upload é lido uma vez e reaproveitado).
+    assert all((path / "person.png").is_file() for path in folders)
+
+
+def test_lipsync_batch_caps_at_ten_and_single_comment_stays_single(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
+    monkeypatch.setattr(motion_control, "_run_lipsync", lambda *args: None)
+    many = "\n".join(f"comentário {index}" for index in range(11))
+    response = client.post("/api/motion-control/lipsync", data={"reply_to": many},
+                           files={"person": ("person.png", _png(), "image/png")})
+    assert response.status_code == 422
+    assert "lote" in response.json()["detail"].lower()
+    assert not list((tmp_path / "motion").glob("*"))
+    one = client.post("/api/motion-control/lipsync", data={"reply_to": "obrigada!"},
+                      files={"person": ("person.png", _png(), "image/png")})
+    assert one.status_code == 200
+    assert "batch" not in one.json()
+    assert one.json()["run_reply"] == "obrigada!"

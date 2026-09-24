@@ -48,6 +48,7 @@
         <small id="spAudioHint" hidden>O áudio guia a boca do vídeo final. De 1 a 60 segundos. Até 30 MB.</small></div>
       <button type="submit" class="mc-generate" id="spGenerate">Gerar vídeo falado</button>
       <p class="mc-note">Lip-sync local (CUTCLIPS_LIPSYNC_WORKFLOW): a foto ganha lábios sincronizados com a fala. Rosto de frente e boa luz rendem melhor.</p>
+      <p class="mc-note" id="spBatchNote" hidden></p>
     </form><form class="mc-card mc-pane" id="mcSellForm" data-pane="sell" hidden>
       <h2>Vídeo de vendas completo</h2>
       <span class="mc-seg"><button type="button" data-sl-mode="product" class="on">Produto · apresentar</button><button type="button" data-sl-mode="outfit">Roupa · vestir</button></span>
@@ -65,6 +66,7 @@
         <textarea name="script" maxlength="1000" rows="3" placeholder="Roteiro escrito por você (opcional). Vazio: a IA escreve, ou um template fixo quando não há chave."></textarea>
         <small>O roteiro vira a voz da influencer (a salva como a dela) e lip-sync. Benefício e chamada alimentam a IA ou o template.</small></div>
       <label class="mc-check"><input type="checkbox" name="refine"> Passe extra do FLUX para corrigir mãos e rótulo (+~40 s)</label>
+      <label class="mc-input"><strong>Preço (opcional)</strong><input name="price" maxlength="40" placeholder="Ex.: R$ 49,90"><small>Card de preço em pílula amarela, queimado no topo de todos os vídeos do job (exige ffmpeg com libass).</small></label>
       <button type="submit" class="mc-generate" id="slGenerate">Gerar os dois vídeos</button>
       <p class="mc-note">Um job, dois vídeos: ela dançando com o produto e ela falando o roteiro de venda. Exige Wan, FLUX (se houver foto do produto) e o fluxo de lip-sync configurado. Com <code>CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW</code>, sai um terceiro vídeo com ela dançando e falando ao mesmo tempo.</p>
     </form><div><div class="mc-card"><h2>Resultado</h2><div class="mc-status" id="mcConfig">Verificando ComfyUI…</div>
@@ -255,7 +257,7 @@
     const box = speakForm.elements.text;
     if (mode === 'reply') {
       box.placeholder = 'Cole os comentários, um por linha — a IA responde no tom da influencer.';
-      root.querySelector('#spTextHint').textContent = 'A IA escreve a resposta e ela fala com a voz escolhida. Sem chave de IA, um template agradecido responde. Até 2000 caracteres.';
+      root.querySelector('#spTextHint').textContent = 'A IA escreve a resposta e ela fala com a voz escolhida. Uma linha = um comentário; várias linhas viram um lote de até 10 vídeos. Sem chave de IA, um template agradecido responde.';
     } else {
       box.placeholder = 'Ex.: Esse produto mudou a minha rotina matinal.';
       root.querySelector('#spTextHint').textContent = 'Falado offline com a voz salva como a da influencer. Até 1000 caracteres.';
@@ -492,7 +494,7 @@
   }
 
   function show(job) {
-    const key = `${job.id}:${job.status}:${job.composed || ''}:${job.dance_ready ? 'd' : ''}:${job.done_talk ? 't' : ''}:${job.dance_talk ? 'k' : ''}:${job.progress ?? ''}:${job.error || ''}`;
+    const key = `${job.id}:${job.status}:${job.composed || ''}:${job.dance_ready ? 'd' : ''}:${job.done_talk ? 't' : ''}:${job.voiced ? 'o' : ''}:${job.dance_talk ? 'k' : ''}:${job.progress ?? ''}:${job.error || ''}`;
     if (key === displayed) return;
     displayed = key;
     result.replaceChildren(); error.hidden = true;
@@ -522,6 +524,10 @@
       if (job.status === 'done' || job.dance_ready) {
         output(`/api/motion-control/${job.id}/view`, `/api/motion-control/${job.id}/download`,
                'Vídeo 1 · a influencer dançando com o produto');
+      }
+      if (job.voiced) {
+        output(`/api/motion-control/${job.id}/voiced`, `/api/motion-control/${job.id}/voiced/download`,
+               'Vídeo 1 com a voz de venda por cima · voiced.mp4');
       }
       if (job.status === 'done' || job.done_talk) {
         output(`/api/motion-control/${job.id}/talking`, `/api/motion-control/${job.id}/talking/download`,
@@ -604,6 +610,7 @@
 
   speakForm.addEventListener('submit', async event => {
     event.preventDefault(); error.hidden = true;
+    root.querySelector('#spBatchNote').hidden = true;
     if (speakPersonSource === 'upload' && !spPerson.files[0]) {
       error.textContent = 'Envie a foto da influencer ou clique em “Usar da Influencer IA”.'; error.hidden = false; return;
     }
@@ -626,6 +633,9 @@
     if (speechMode === 'reply' && speech.length > 2000) {
       error.textContent = 'Os comentários podem ter no máximo 2000 caracteres.'; error.hidden = false; return;
     }
+    if (speechMode === 'reply' && speech.split('\n').filter(line => line.trim()).length > 10) {
+      error.textContent = 'O lote aceita no máximo 10 comentários — cole um por linha.'; error.hidden = false; return;
+    }
     if ((speakPersonSource === 'upload' && spPerson.files[0].size > 20 * 1024 * 1024) ||
         (speechMode === 'audio' && spAudio.files[0].size > 30 * 1024 * 1024)) {
       error.textContent = 'Imagem ou áudio acima do limite permitido.'; error.hidden = false; return;
@@ -644,6 +654,12 @@
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível iniciar a geração.');
       current = data.id; show(data); await refresh();
+      if (data.batch) {
+        // Lote: os N jobs entram no histórico, e este é o primeiro deles.
+        const batchNote = root.querySelector('#spBatchNote');
+        batchNote.textContent = `${data.batch.length} respostas na fila — uma por comentário colado.`;
+        batchNote.hidden = false;
+      }
     } catch (exc) { error.textContent = exc.message; error.hidden = false; }
     finally { button.disabled = false; button.textContent = 'Gerar vídeo falado'; }
   });
@@ -678,6 +694,8 @@
       body.append('script', sellForm.elements.script.value.trim());
       body.append('mode', slMode);
       if (sellForm.elements.refine.checked) body.append('refine', 'true');
+      const price = sellForm.elements.price.value.trim();
+      if (price) body.append('price', price);
       const response = await fetch('/api/motion-control/oneshot', {method:'POST', body});
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível iniciar a geração.');
