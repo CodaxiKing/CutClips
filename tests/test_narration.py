@@ -109,3 +109,26 @@ def test_narration_without_a_voice_falls_back_to_the_influencer_profile(client, 
     spec = db.get_job(answer.json()["job_id"])["settings"]["narration"]
     assert spec["voice"] == "Microsoft Maria"
     assert spec["voice_rate"] == 3
+
+
+def test_sell_script_falls_back_to_the_template_without_ai(monkeypatch):
+    """Sem provedor pronto o one-shot ainda fala: o template é contrato, não erro."""
+    from cutclips import quiz_ai
+    monkeypatch.setattr(quiz_ai, "ai_status", lambda cfg=None: {"ready": False})
+    lines = narrate.sell_script("Sérum Vitamina C", "acabou com a minha olheira", "pega o link da vitrine")
+    assert lines[0] == "Olha só o que chegou: Sérum Vitamina C."
+    assert "acabou com a minha olheira" in lines[1]
+    assert lines[2] == "pega o link da vitrine"
+    plain = narrate.sell_script("Garrafa Térmica")
+    assert "surpreendeu" in plain[1]
+    assert plain[2] == narrate.SELL_FALLBACK_CTA
+
+
+def test_sell_script_uses_the_ai_when_a_provider_is_ready(monkeypatch):
+    from cutclips import quiz_ai, select
+    from cutclips.config import Config
+    monkeypatch.setattr(quiz_ai, "ai_status", lambda cfg=None: {"ready": True})
+    monkeypatch.setitem(select.PROVIDERS, "anthropic",
+                        lambda system, user, cfg: '{"script": ["Gancho com o produto.", "Benefício real.", "Corre lá!"]}')
+    lines = narrate.sell_script("Chá Verde", cfg=Config(llm_provider="anthropic"))
+    assert lines == ["Gancho com o produto.", "Benefício real.", "Corre lá!"]

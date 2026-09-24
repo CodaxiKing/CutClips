@@ -98,6 +98,46 @@ def write_script(spec: Narration, cfg: Config = CONFIG) -> dict:
             "hashtags": [str(x) for x in (data.get("hashtags") or [])][:8]}
 
 
+SELL_SYSTEM = """Você escreve roteiros de vendas curtos, falados em voz alta por um influencer, para vídeos verticais.
+
+Regras:
+- Português do Brasil, falado, frases curtas. Entre 3 e 4 frases, ~15 segundos no total.
+- Frase 1: gancho citando o produto. Frase 2: benefício pessoal real. Frase 3: chamada para comprar ou ver o link.
+- Nada de listas, markdown, emojis ou "seja bem-vindo".
+
+Devolva SOMENTE JSON válido, sem cercas de código:
+{"script": ["frase 1", "frase 2", "frase 3"]}"""
+
+# Sem chave a geração não pode falhar: o vídeo inteiro já rodou minutos até aqui.
+SELL_FALLBACK_CTA = "Se você curtiu, o link tá na vitrine."
+
+
+def sell_script(product: str, benefit: str = "", cta: str = "", cfg: Config = CONFIG) -> list[str]:
+    """Roteiro de venda do one-shot: IA quando há provedor pronto, template fixo quando não.
+
+    Diferente de write_script, nunca levanta exceção por falta de IA — o fallback
+    é parte do contrato, não um erro. Quem escreveu à mão passa `script` direto.
+    """
+    try:
+        from .quiz_ai import ai_status
+        from .select import PROVIDERS, _extract_json
+        if ai_status(cfg)["ready"]:
+            provider = PROVIDERS.get(cfg.llm_provider)
+            user = (f"Produto: {product}\nBenefício: {benefit or '(não informado)'}\n"
+                    f"Chamada para ação: {cta or '(use uma chamada padrão)'}")
+            data = _extract_json(provider(SELL_SYSTEM, user, cfg))
+            lines = [" ".join(str(x).split()) for x in (data.get("script") or []) if str(x).strip()]
+            if lines:
+                return lines[:6]
+    except Exception:
+        pass  # provedor sem chave ou fora do ar: o template leva o vídeo a término
+    lines = [f"Olha só o que chegou: {product}."]
+    lines.append(f"Desde que comecei a usar, {benefit}." if benefit.strip()
+                 else "A qualidade me surpreendeu de verdade.")
+    lines.append((cta or SELL_FALLBACK_CTA).strip())
+    return lines
+
+
 # --------------------------------------------------------------------------- #
 # Voz
 # --------------------------------------------------------------------------- #

@@ -9,6 +9,7 @@
       <button type="button" class="mc-tab active" data-pane="motion">Motion Control</button>
       <button type="button" class="mc-tab" data-pane="tryon">Trocar roupa</button>
       <button type="button" class="mc-tab" data-pane="lipsync">Falar (lip-sync)</button>
+      <button type="button" class="mc-tab" data-pane="sell">Vender (one-shot)</button>
     </div>
     <div class="mc-grid"><form class="mc-card mc-pane" id="mcForm" data-pane="motion">
       <h2>Crie seu vídeo</h2>
@@ -46,6 +47,24 @@
         <small id="spAudioHint" hidden>O áudio guia a boca do vídeo final. De 1 a 60 segundos. Até 30 MB.</small></div>
       <button type="submit" class="mc-generate" id="spGenerate">Gerar vídeo falado</button>
       <p class="mc-note">Lip-sync local (CUTCLIPS_LIPSYNC_WORKFLOW): a foto ganha lábios sincronizados com a fala. Rosto de frente e boa luz rendem melhor.</p>
+    </form><form class="mc-card mc-pane" id="mcSellForm" data-pane="sell" hidden>
+      <h2>Vídeo de vendas completo</h2>
+      <span class="mc-seg"><button type="button" data-sl-mode="product" class="on">Produto · apresentar</button><button type="button" data-sl-mode="outfit">Roupa · vestir</button></span>
+      <label class="mc-input"><strong>1 · Vídeo de dança</strong><span class="mc-file" id="slVideoDrop"><span>Escolher vídeo MP4, WebM ou M4V</span><input name="video" type="file" accept=".mp4,.webm,.m4v,video/mp4,video/webm" required></span><small>Uma pessoa em cena, de 2 a 30 segundos. Até 150 MB.</small></label>
+      <div class="mc-input"><strong>2 · Foto da influencer</strong>
+        <span class="mc-seg"><button type="button" data-sl-person="upload" class="on">Enviar foto</button><button type="button" data-sl-person="gallery">Usar da Influencer IA</button></span>
+        <span class="mc-file" id="slPersonDrop"><span>Escolher imagem PNG, JPG ou WebP</span><input name="person" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"></span>
+        <div id="slGallery" hidden><div class="mc-picker" id="slPicker">Carregando gerações…</div><input type="hidden" name="person_job" value=""></div>
+        <small>Foto de rosto visível, de frente e com boa luz. Até 20 MB.</small></div>
+      <label class="mc-input"><strong id="slProductLabel">3 · Foto do produto (opcional)</strong><span class="mc-file" id="slProductDrop"><span>Escolher imagem do produto</span><input name="product" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"></span><small id="slProductHint">Com a foto, o FLUX coloca o produto em cena antes da animação. Sem ela, o vídeo de dança sai só com a foto da influencer.</small></label>
+      <div class="mc-input"><strong>4 · Produto e roteiro</strong>
+        <input type="text" name="product_name" maxlength="120" required placeholder="Nome do produto — ex.: Sérum Vitamina C">
+        <input type="text" name="benefit" maxlength="200" placeholder="Benefício (opcional) — ex.: acabou com a minha olheira">
+        <input type="text" name="cta" maxlength="200" placeholder="Chamada final (opcional) — ex.: o link tá na vitrine">
+        <textarea name="script" maxlength="1000" rows="3" placeholder="Roteiro escrito por você (opcional). Vazio: a IA escreve, ou um template fixo quando não há chave."></textarea>
+        <small>O roteiro vira a voz da influencer (a salva como a dela) e lip-sync. Benefício e chamada alimentam a IA ou o template.</small></div>
+      <button type="submit" class="mc-generate" id="slGenerate">Gerar os dois vídeos</button>
+      <p class="mc-note">Um job, dois vídeos: ela dançando com o produto e ela falando o roteiro de venda. Exige Wan, FLUX (se houver foto do produto) e o fluxo de lip-sync configurado.</p>
     </form><div><div class="mc-card"><h2>Resultado</h2><div class="mc-status" id="mcConfig">Verificando ComfyUI…</div>
       <div class="mc-result" id="mcResult"><p>Envie uma imagem e um vídeo para começar. O resultado aparecerá aqui.</p></div>
       <p class="mc-error" id="mcError" role="alert" hidden></p></div>
@@ -54,6 +73,7 @@
   const form = root.querySelector('#mcForm');
   const tryonForm = root.querySelector('#mcTryonForm');
   const speakForm = root.querySelector('#mcSpeakForm');
+  const sellForm = root.querySelector('#mcSellForm');
   const result = root.querySelector('#mcResult');
   const error = root.querySelector('#mcError');
   const history = root.querySelector('#mcHistory');
@@ -62,6 +82,9 @@
   let personSource = 'upload';
   let pickerLoaded = false;
   let tcMode = 'outfit';
+  let slMode = 'product';
+  let slPersonSource = 'upload';
+  let slPickerLoaded = false;
   let speakPersonSource = 'upload';
   let speakPickerLoaded = false;
   let speechMode = 'text';
@@ -70,6 +93,12 @@
   const stateText = {queued:'Na fila', speaking:'Gerando a voz', dressing:'Vestindo a roupa · etapa 1 de 2', uploading:'Enviando ao ComfyUI', processing:'Gerando vídeo', done:'Concluído', error:'Falhou'};
 
   function stageLabel(job) {
+    if (job.kind === 'oneshot') {
+      const one = {queued:'Na fila', speaking:'Gravando a voz da influencer', dressing:'Aplicando o produto',
+                   uploading:'Preparando o vídeo de dança', processing:'Gerando o vídeo de dança',
+                   talking:'Sincronizando os lábios', done:'Concluído · 2 vídeos', error:'Falhou'};
+      return one[job.status] || job.status;
+    }
     let base = stateText[job.status] || job.status;
     if (job.kind === 'tryon' && job.mode === 'product') {
       if (job.status === 'dressing') base = 'Aplicando o produto · etapa 1 de 2';
@@ -107,6 +136,12 @@
   spPerson.addEventListener('change', () => preview(spPerson, root.querySelector('#spPersonDrop'), 'img'));
   spAudio.addEventListener('change', () => preview(spAudio, root.querySelector('#spAudioDrop'), 'img'));
 
+  const slVideo = sellForm.elements.video, slPerson = sellForm.elements.person;
+  const slProduct = sellForm.elements.product, slPersonJob = sellForm.elements.person_job;
+  slVideo.addEventListener('change', () => preview(slVideo, root.querySelector('#slVideoDrop'), 'video'));
+  slPerson.addEventListener('change', () => preview(slPerson, root.querySelector('#slPersonDrop'), 'img'));
+  slProduct.addEventListener('change', () => preview(slProduct, root.querySelector('#slProductDrop'), 'img'));
+
   root.querySelectorAll('.mc-tab').forEach(tab => tab.addEventListener('click', () => {
     root.querySelectorAll('.mc-tab').forEach(other => other.classList.toggle('active', other === tab));
     root.querySelectorAll('.mc-pane').forEach(pane => { pane.hidden = pane.dataset.pane !== tab.dataset.pane; });
@@ -114,6 +149,7 @@
     renderConfig();
     if (tab.dataset.pane === 'tryon') loadPicker();
     if (tab.dataset.pane === 'lipsync') { loadSpeakPicker(); loadVoices(); }
+    if (tab.dataset.pane === 'sell') loadSellPicker();
   }));
 
   function setPersonMode(mode) {
@@ -258,6 +294,63 @@
     }
   }
 
+  function setSlPersonMode(mode) {
+    slPersonSource = mode;
+    sellForm.querySelectorAll('[data-sl-person]').forEach(btn => btn.classList.toggle('on', btn.dataset.slPerson === mode));
+    root.querySelector('#slPersonDrop').hidden = mode !== 'upload';
+    root.querySelector('#slGallery').hidden = mode === 'upload';
+    if (mode === 'upload') {
+      slPersonJob.value = '';
+    } else {
+      slPerson.value = '';
+      preview(slPerson, root.querySelector('#slPersonDrop'), 'img');
+      loadSellPicker();
+    }
+  }
+  sellForm.querySelectorAll('[data-sl-person]').forEach(btn => btn.addEventListener('click', () => setSlPersonMode(btn.dataset.slPerson)));
+
+  function setSlMode(mode) {
+    slMode = mode;
+    const outfit = mode === 'outfit';
+    sellForm.querySelectorAll('[data-sl-mode]').forEach(btn => btn.classList.toggle('on', btn.dataset.slMode === mode));
+    root.querySelector('#slProductLabel').textContent = outfit ? '3 · Foto da roupa (opcional)' : '3 · Foto do produto (opcional)';
+    root.querySelector('#slProductDrop').querySelector('span').textContent = outfit ? 'Escolher imagem da peça' : 'Escolher imagem do produto';
+    root.querySelector('#slProductHint').textContent = outfit
+      ? 'Com a foto, o FLUX veste a peça na influencer antes da animação. Sem ela, o vídeo de dança sai só com a foto da influencer.'
+      : 'Com a foto, o FLUX coloca o produto em cena antes da animação. Sem ela, o vídeo de dança sai só com a foto da influencer.';
+  }
+  sellForm.querySelectorAll('[data-sl-mode]').forEach(btn => btn.addEventListener('click', () => setSlMode(btn.dataset.slMode)));
+
+  async function loadSellPicker() {
+    if (slPickerLoaded) return;
+    const box = root.querySelector('#slPicker');
+    try {
+      const data = await fetch('/api/influencers').then(r => r.json());
+      const jobs = data.jobs.filter(job => job.status === 'done' && job.kind === 'image');
+      box.replaceChildren();
+      if (!jobs.length) {
+        box.textContent = 'Nenhuma imagem pronta ainda — gere uma na aba Influencer IA.';
+        slPickerLoaded = true;
+        return;
+      }
+      for (const job of jobs) {
+        const tile = document.createElement('button'); tile.type = 'button'; tile.className = 'mc-pick';
+        const img = document.createElement('img'); img.loading = 'lazy';
+        img.src = `/api/influencers/${job.id}/file`; img.alt = '';
+        const caption = document.createElement('small'); caption.textContent = job.description || 'Influencer IA';
+        tile.append(img, caption);
+        tile.addEventListener('click', () => {
+          slPersonJob.value = job.id;
+          box.querySelectorAll('.mc-pick').forEach(other => other.classList.toggle('on', other === tile));
+        });
+        box.append(tile);
+      }
+      slPickerLoaded = true;
+    } catch {
+      box.textContent = 'Não foi possível carregar as gerações da Influencer IA.';
+    }
+  }
+
   async function config() {
     try {
       configData = await fetch('/api/motion-control/config').then(r => r.json());
@@ -277,23 +370,31 @@
     // Cada aba só precisa do que ela mesma usa: Wan/FLUX para animar, o fluxo
     // exportado para o lip-sync. Exigir tudo em toda aba esconderia o que está pronto.
     const problems = [];
-    if (activePane !== 'lipsync') {
+    if (activePane === 'lipsync') {
+      if (!data.lipsync_ready) {
+        problems.push(data.lipsync_missing?.length ? `lip-sync: ${data.lipsync_missing.join(', ')}`
+          : 'lip-sync indisponível nesta instalação');
+      }
+    } else {
       if (!data.ready) {
         problems.push(data.missing?.length ? `Wan Animate incompleto: ${data.missing.join(', ')}`
           : !data.template ? 'o fluxo em CUTCLIPS_WAN_WORKFLOW não pôde ser lido'
           : 'o fluxo Wan usa nós que não existem nesta instalação');
       }
-      if (activePane === 'tryon' && !data.flux_ready) {
+      if ((activePane === 'tryon' || activePane === 'sell') && !data.flux_ready) {
         problems.push(data.flux_missing?.length ? `FLUX incompleto: ${data.flux_missing.join(', ')}`
           : 'FLUX indisponível nesta instalação');
       }
-    } else if (!data.lipsync_ready) {
-      problems.push(data.lipsync_missing?.length ? `lip-sync: ${data.lipsync_missing.join(', ')}`
-        : 'lip-sync indisponível nesta instalação');
+      // O one-shot também entrega o vídeo falando: sem lip-sync pronto, ele nem começa.
+      if (activePane === 'sell' && !data.lipsync_ready) {
+        problems.push(data.lipsync_missing?.length ? `lip-sync: ${data.lipsync_missing.join(', ')}`
+          : 'lip-sync indisponível nesta instalação');
+      }
     }
     box.textContent = problems.length
       ? `ComfyUI conectado, mas incompleto — ${problems.join('; ')}.`
       : activePane === 'lipsync' ? 'ComfyUI conectado · fluxo de lip-sync disponível'
+      : activePane === 'sell' ? 'ComfyUI conectado · Wan, FLUX e lip-sync prontos'
       : activePane === 'tryon' ? 'ComfyUI conectado · Wan Animate e FLUX prontos (troca de roupa)'
       : 'ComfyUI conectado · Wan Animate local disponível';
     box.className = `mc-status ${problems.length ? 'bad' : 'good'}`;
@@ -308,7 +409,8 @@
       for (const job of data.jobs) {
         const row = document.createElement('div'); row.className = 'mc-job';
         const label = document.createElement('span');
-        const origin = job.kind === 'tryon' ? `${job.mode === 'product' ? 'Produto' : 'Trocar roupa'} · ${job.outfit_name || 'Imagem'}`
+        const origin = job.kind === 'oneshot' ? `Venda · ${job.product_name || 'Produto'}`
+          : job.kind === 'tryon' ? `${job.mode === 'product' ? 'Produto' : 'Trocar roupa'} · ${job.outfit_name || 'Imagem'}`
           : job.kind === 'lipsync' ? `Falando · ${job.audio_name || 'texto'}`
           : (job.image_name || 'Imagem');
         label.textContent = `${origin} · ${stageLabel(job)}`;
@@ -323,21 +425,45 @@
   }
 
   function show(job) {
-    const key = `${job.id}:${job.status}:${job.composed || ''}:${job.error || ''}`;
+    const key = `${job.id}:${job.status}:${job.composed || ''}:${job.dance_ready ? 'd' : ''}:${job.error || ''}`;
     if (key === displayed) return;
     displayed = key;
     result.replaceChildren(); error.hidden = true;
-    if (job.kind === 'tryon' && job.composed) {
-      const product = job.mode === 'product';
+    if ((job.kind === 'tryon' || job.kind === 'oneshot') && job.composed) {
+      const selling = job.kind === 'oneshot';
       const box = document.createElement('div'); box.className = 'mc-composed';
       const img = document.createElement('img');
       img.src = `/api/motion-control/${job.id}/composed`;
-      img.alt = product ? 'Influencer já com o produto escolhido' : 'Influencer já com a roupa escolhida';
+      img.alt = selling ? `Influencer já com ${job.product_name || 'o produto'}` : 'Influencer já com a imagem escolhida';
       const caption = document.createElement('span');
-      caption.textContent = product
-        ? (job.status === 'done' ? 'Etapa 1 · a influencer já estava com o produto' : 'Etapa 1 · a influencer está com o produto')
-        : (job.status === 'done' ? 'Etapa 1 · a influencer já estava com a roupa' : 'Etapa 1 · a influencer está com a roupa');
+      caption.textContent = selling ? `Foto pronta · a influencer com ${job.product_name || 'o produto'}`
+        : job.mode === 'product'
+          ? (job.status === 'done' ? 'Etapa 1 · a influencer já estava com o produto' : 'Etapa 1 · a influencer está com o produto')
+          : (job.status === 'done' ? 'Etapa 1 · a influencer já estava com a roupa' : 'Etapa 1 · a influencer está com a roupa');
       box.append(img, caption); result.append(box);
+    }
+    if (job.kind === 'oneshot') {
+      const output = (src, download, caption) => {
+        const wrap = document.createElement('div'); wrap.className = 'mc-sell';
+        const player = document.createElement('video');
+        player.src = src; player.controls = true; player.preload = 'metadata';
+        const label = document.createElement('small'); label.textContent = caption;
+        const link = document.createElement('a'); link.href = download; link.textContent = 'Baixar vídeo';
+        link.className = 'btn btn-primary'; link.download = `venda-${job.id.slice(0,8)}.mp4`;
+        wrap.append(player, label, link); result.append(wrap);
+      };
+      if (job.status === 'done' || job.dance_ready) {
+        output(`/api/motion-control/${job.id}/view`, `/api/motion-control/${job.id}/download`,
+               'Vídeo 1 · a influencer dançando com o produto');
+      }
+      if (job.status === 'done') {
+        output(`/api/motion-control/${job.id}/talking`, `/api/motion-control/${job.id}/talking/download`,
+               'Vídeo 2 · a influencer falando o roteiro de venda');
+      } else {
+        const message = document.createElement('p'); message.textContent = stageLabel(job); result.append(message);
+      }
+      if (job.status === 'error') { error.textContent = job.error || 'A geração falhou.'; error.hidden = false; }
+      return;
     }
     if (job.status === 'done') {
       const player = document.createElement('video');
@@ -433,6 +559,43 @@
       current = data.id; show(data); await refresh();
     } catch (exc) { error.textContent = exc.message; error.hidden = false; }
     finally { button.disabled = false; button.textContent = 'Gerar vídeo falado'; }
+  });
+
+  sellForm.addEventListener('submit', async event => {
+    event.preventDefault(); error.hidden = true;
+    const productName = sellForm.elements.product_name.value.trim();
+    if (!slVideo.files[0]) { error.textContent = 'Envie o vídeo de dança.'; error.hidden = false; return; }
+    if (slPersonSource === 'upload' && !slPerson.files[0]) {
+      error.textContent = 'Envie a foto da influencer ou clique em “Usar da Influencer IA”.';
+      error.hidden = false; return;
+    }
+    if (slPersonSource !== 'upload' && !slPersonJob.value) {
+      error.textContent = 'Escolha uma imagem gerada na aba Influencer IA.'; error.hidden = false; return;
+    }
+    if (productName.length < 3) { error.textContent = 'Informe o nome do produto.'; error.hidden = false; return; }
+    if (slVideo.files[0].size > 150 * 1024 * 1024 ||
+        (slPersonSource === 'upload' && slPerson.files[0].size > 20 * 1024 * 1024) ||
+        (slProduct.files[0] && slProduct.files[0].size > 20 * 1024 * 1024)) {
+      error.textContent = 'Imagem ou vídeo acima do limite permitido.'; error.hidden = false; return;
+    }
+    const button = root.querySelector('#slGenerate'); button.disabled = true; button.textContent = 'Enviando…';
+    try {
+      const body = new FormData();
+      body.append('video', slVideo.files[0]);
+      if (slPersonSource === 'upload') body.append('person', slPerson.files[0]);
+      else body.append('person_job', slPersonJob.value);
+      if (slProduct.files[0]) body.append('product', slProduct.files[0]);
+      body.append('product_name', productName);
+      body.append('benefit', sellForm.elements.benefit.value.trim());
+      body.append('cta', sellForm.elements.cta.value.trim());
+      body.append('script', sellForm.elements.script.value.trim());
+      body.append('mode', slMode);
+      const response = await fetch('/api/motion-control/oneshot', {method:'POST', body});
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível iniciar a geração.');
+      current = data.id; show(data); await refresh();
+    } catch (exc) { error.textContent = exc.message; error.hidden = false; }
+    finally { button.disabled = false; button.textContent = 'Gerar os dois vídeos'; }
   });
 
   config(); refresh(); setInterval(refresh, 4000);

@@ -18,8 +18,12 @@
 .mc-tab{padding:10px 18px;border-radius:11px;border:1px solid var(--line-2);background:var(--surface-3);color:var(--muted);font:inherit;font-weight:700;font-size:14px;cursor:pointer}
 .mc-tab:hover{border-color:#b8f447}
 .mc-tab.active{background:#c8f92d;border-color:#c8f92d;color:#162000}
-.mc-pane[hidden],.mc-file[hidden],#tcGallery[hidden],#spGallery[hidden],#spTextWrap[hidden]{display:none}
+.mc-pane[hidden],.mc-file[hidden],#tcGallery[hidden],#spGallery[hidden],#spTextWrap[hidden],#slGallery[hidden]{display:none}
 .mc-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.mc-input input[type=text]{display:block;width:100%;box-sizing:border-box;border-radius:9px;border:1px solid var(--line-2);background:var(--surface-3);color:var(--fg);padding:10px;font:inherit;margin-bottom:8px}
+.mc-sell{display:grid;gap:8px;width:100%;justify-items:center}
+.mc-sell video{max-height:300px}
+.mc-sell small{color:var(--muted);font-size:12px;text-align:center}
 .mc-seg{display:flex;gap:6px;margin:0 0 9px}
 .mc-seg button{flex:1;padding:8px 6px;border-radius:8px;border:1px solid var(--line-2);background:var(--surface-3);color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
 .mc-seg button.on{border-color:#b8f447;color:#b8f447}

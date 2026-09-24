@@ -528,6 +528,8 @@ A aba **Trocar roupa** encadeia duas etapas locais: o FLUX veste a peça escolhi
 
 A aba **Falar (lip-sync)** sincroniza os lábios da foto com um áudio enviado (WAV/MP3/M4A/AAC/OGG/FLAC de 1 a 60 segundos) ou com um texto falado pela voz do sistema. Não há fluxo embutido: exporte um fluxo de lip-sync (LatentSync, Wav2Lip, SadTalker…) em formato API com um `LoadImage`, um `LoadAudio` e exatamente um `SaveVideo`, e aponte `CUTCLIPS_LIPSYNC_WORKFLOW` para o JSON. O texto é sintetizado antes de qualquer envio ao ComfyUI, então erro de voz aparece em segundos.
 
+A aba **Vender (one-shot)** entrega dois vídeos num job só: a influencer dançando com o produto (FLUX + Wan, quando há foto da peça/produto) e ela falando um roteiro de venda em lip-sync (`POST /api/motion-control/oneshot`). O roteiro vem da IA quando há provedor configurado (`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`) e de um template fixo quando não — dá também para escrever roteiro, benefício e chamada manualmente no formulário. A voz é a salva como a da influencer. O endpoint retorna 503 sem `CUTCLIPS_LIPSYNC_WORKFLOW`, antes de qualquer render; os dois arquivos saem como `result.mp4` (dança) e `talking.mp4` (fala) dentro da pasta do job.
+
 **Voz da influencer**: na aba Narrado, o botão **Definir esta voz como a da influencer** grava voz e andamento em `storage/voice.json`. Toda narração sem voz escolhida passa a usar esse perfil por padrão — inclusive pela API, via `GET`/`POST /api/narration/voice` — e o modo de texto do lip-sync fala com a mesma voz.
 
 ## Influencer IA

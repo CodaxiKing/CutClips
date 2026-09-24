@@ -223,3 +223,47 @@ def test_lipsync_flow_wires_person_and_speech(tmp_path, monkeypatch):
     assert flow["1"]["inputs"]["image"] == "person.png"
     assert flow["2"]["inputs"]["audio"] == "speech.wav"
     assert flow["3"]["inputs"]["filename_prefix"] == "video/cutclips-lipsync"
+
+
+def _oneshot_files():
+    return {"video": ("motion.mp4", b"video", "video/mp4"),
+            "person": ("person.png", _png(), "image/png")}
+
+
+def test_oneshot_requires_the_lipsync_template(client, tmp_path, monkeypatch):
+    """Sem o fluxo de lip-sync não há segundo vídeo: o job nem nasce."""
+    monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
+    monkeypatch.delenv("CUTCLIPS_LIPSYNC_WORKFLOW", raising=False)
+    response = client.post("/api/motion-control/oneshot", data={"product_name": "Sérum Vitamina C"},
+                           files=_oneshot_files())
+    assert response.status_code == 503
+    assert "CUTCLIPS_LIPSYNC_WORKFLOW" in response.json()["detail"]
+    assert not list((tmp_path / "motion").glob("*"))
+
+
+def test_oneshot_requires_the_product_name(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
+    response = client.post("/api/motion-control/oneshot", data={"product_name": "ab"}, files=_oneshot_files())
+    assert response.status_code == 422
+    assert not list((tmp_path / "motion").glob("*"))
+
+
+def test_oneshot_requires_a_person_source(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
+    response = client.post("/api/motion-control/oneshot", data={"product_name": "Sérum Vitamina C"},
+                           files={"video": ("motion.mp4", b"video", "video/mp4")})
+    assert response.status_code == 422
+    assert "influencer" in response.json()["detail"].lower()
+    assert not list((tmp_path / "motion").glob("*"))
+
+
+def test_oneshot_rejects_long_video(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
+    monkeypatch.setattr(motion_control, "probe", lambda path: SimpleNamespace(duration=31))
+    template = tmp_path / "lipsync.json"
+    template.write_text(json.dumps(_lipsync_template()), encoding="utf-8")
+    monkeypatch.setenv("CUTCLIPS_LIPSYNC_WORKFLOW", str(template))
+    response = client.post("/api/motion-control/oneshot", data={"product_name": "Sérum Vitamina C"},
+                           files=_oneshot_files())
+    assert response.status_code == 422
+    assert not list((tmp_path / "motion").glob("*"))
