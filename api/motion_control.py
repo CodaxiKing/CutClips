@@ -10,8 +10,10 @@ Quatro produtos no mesmo roteador, todos locais e sem créditos:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import shutil
 import subprocess
 import threading
 import time
@@ -20,8 +22,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 
 from api.local_comfy import (WAN_FPS, WAN_MAX_FRAMES, find_nodes, flux_image_workflow,
                               load_local_template, local_video_workflow,
@@ -466,6 +468,26 @@ def _make_voiced(result: Path, speech: Path, target: Path) -> None:
         target.unlink(missing_ok=True)
         detail = (exc.stderr or b"").decode("utf-8", "replace").strip()[-300:]
         raise RuntimeError(f"ffmpeg não conseguiu misturar a voz sobre a dança{': ' + detail if detail else ''}") from exc
+
+
+def _make_thumb(folder: Path) -> str:
+    """Miniatura do histórico (primeiro frame). Devolve "ok", "waiting" (sem vídeo) ou "failed"."""
+    sources = [folder / name for name in ("result.mp4", "talking.mp4") if (folder / name).is_file()]
+    if not sources:
+        return "waiting"
+    target = folder / "thumb.jpg"
+    for source in sources:
+        try:
+            subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", "0.2",
+                            "-i", source.name, "-frames:v", "1", "-vf", "scale=320:-2", "-q:v", "5",
+                            target.name],
+                           cwd=folder, check=True, capture_output=True)
+        except (OSError, subprocess.CalledProcessError):
+            continue
+        if target.is_file() and target.stat().st_size > 0:
+            return "ok"
+        target.unlink(missing_ok=True)
+    return "failed"
 
 
 def _run(job_id: str, prompt: str) -> None:
@@ -1259,6 +1281,66 @@ def history():
     return {"jobs": sorted(jobs, key=lambda item: item["created_at"], reverse=True)[:50]}
 
 
+def _stream_changes(last: dict[str, str]) -> tuple[list[dict], dict[str, str]]:
+    """Lê os status.json e devolve só o que mudou desde a chamada anterior (SSE)."""
+    changed: list[dict] = []
+    present: set[str] = set()
+    if ROOT.exists():
+        for path in sorted(ROOT.glob("*/status.json")):
+            job_id = path.parent.name
+            present.add(job_id)
+            try:
+                raw = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if last.get(job_id) == raw:
+                continue
+            try:
+                changed.append(json.loads(raw))
+            except ValueError:
+                continue
+            last[job_id] = raw
+    for job_id in [key for key in last if key not in present]:
+        del last[job_id]
+    return changed, last
+
+
+@router.get("/stream")
+async def stream(request: Request):
+    """SSE: um evento quando algum status.json muda — a UI re-renderiza na hora, sem polling."""
+    async def events():
+        last: dict[str, str] = {}
+        while True:
+            if await request.is_disconnected():
+                return
+            changed, last = _stream_changes(last)
+            if changed:
+                yield f"data: {json.dumps(changed, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(1)
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.get("/storage")
+def storage():
+    """Espaço ocupado pelo histórico: o aviso motiva a excluir gerações antigas."""
+    total, jobs = 0, 0
+    if ROOT.exists():
+        for folder in ROOT.iterdir():
+            try:
+                if not folder.is_dir():
+                    continue
+                jobs += 1
+                for entry in folder.iterdir():
+                    try:
+                        total += entry.stat().st_size
+                    except OSError:
+                        continue
+            except OSError:
+                continue
+    return {"bytes": total, "jobs": jobs}
+
+
 @router.get("/{job_id}")
 def status(job_id: str):
     if not job_id.isalnum():
@@ -1311,6 +1393,43 @@ def retry(job_id: str):
             target, args = _run, (job_id, job.get("run_prompt", DEFAULT_MOTION_PROMPT))
     threading.Thread(target=target, args=args, daemon=True).start()
     return _record(job_id)
+
+
+@router.delete("/{job_id}")
+def delete(job_id: str):
+    """Exclui a geração e todo o material da pasta dela, liberando o disco."""
+    if not job_id.isalnum():
+        raise HTTPException(404)
+    folder = ROOT / job_id
+    if not folder.is_dir():
+        raise HTTPException(404, "Geração não encontrada")
+    with _lock:
+        if (folder / "status.json").is_file():
+            job = _record(job_id)
+            if job["status"] in ACTIVE_STATUS:
+                raise HTTPException(409, "Cancele a geração antes de excluir")
+        shutil.rmtree(folder)
+    return {"deleted": job_id}
+
+
+@router.get("/{job_id}/thumb")
+def thumb_view(job_id: str):
+    """Miniatura do histórico: primeiro frame do vídeo, gerada sob demanda com ffmpeg."""
+    if not job_id.isalnum():
+        raise HTTPException(404)
+    folder = ROOT / job_id
+    if not folder.is_dir():
+        raise HTTPException(404, "Geração não encontrada")
+    target = folder / "thumb.jpg"
+    if not target.is_file():
+        if (folder / ".nothumb").exists():
+            raise HTTPException(404, "Miniatura indisponível")
+        made = _make_thumb(folder)
+        if made == "failed":
+            (folder / ".nothumb").touch()   # ffmpeg não deu conta: não tenta de novo
+        if not target.is_file():
+            raise HTTPException(404, "Miniatura ainda não disponível")
+    return FileResponse(target, media_type="image/jpeg", headers={"Cache-Control": "max-age=86400"})
 
 
 @router.get("/{job_id}/composed")

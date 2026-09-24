@@ -555,6 +555,14 @@ Com os dois arquivos no lugar, a voz **Piper · pt_BR-faber-medium** aparece em 
 
 **Lote de respostas**: no modo *Responder comentário* da aba Lip-sync, **cada linha é um comentário**; várias linhas viram um lote de até 10 jobs (um por comentário), todos com a mesma foto e voz. O retorno traz todos no campo `batch`, a interface confirma “N respostas na fila” e o histórico lista os jobs — cada um com o seu comentário salvo (`run_reply`), então o retry de cada um responde de novo o comentário certo. Um comentário só continua resposta única, e o limite de 10 linhas cai 422 antes de criar qualquer pasta.
 
+**Tela em tempo real (SSE)**: o histórico não faz mais polling de 4 s — a UI assina `GET /api/motion-control/stream` (Server-Sent Events) e o servidor, a cada segundo, lê os `status.json` e **só emite o que mudou**; a tela re-renderiza na hora (o percentual da etapa acompanha). Um heartbeat de 15 s e a reconexão automática do `EventSource` cobrem proxy que não repassa o stream.
+
+**Notificação no desktop**: a caixa *Avisar no desktop quando uma geração concluir ou falhar* pede a permissão do navegador **só quando você marca** e grava a escolha no `localStorage`. Quando um job sai de “em andamento” para concluído, falhou ou cancelado, sai uma notificação nativa com o nome do job e o estado final — o primeiro snapshot da página não dispara nada.
+
+**Excluir gerações (e aviso de espaço)**: cada linha do histórico tem o botão **Excluir** (`DELETE /api/motion-control/{id}`), que apaga a pasta inteira e libera o disco; jobs em andamento são recusados com 409 (cancele antes). Sob a lista, a linha *Histórico ocupando X em N gerações* (`GET /api/motion-control/storage`) mostra o consumo real e, acima de 10 GB, insiste para excluir as antigas.
+
+**Miniaturas**: cada job ganha um `thumb.jpg` (primeiro frame, 320 px) gerado sob demanda no primeiro pedido do histórico (`GET /{id}/thumb`) — jobs antigos também ganham, e a resposta fica em cache por um dia. Enquanto o vídeo não existe o endpoint responde 404 e tenta de novo depois; se o ffmpeg não der conta, grava `.nothumb` e para de insistir.
+
 ## Influencer IA
 
 A aba **Influencer IA** usa o FLUX.2 Klein 4B local do ComfyUI para criar uma personagem adulta fotorrealista a partir de texto ou de uma imagem. Instale `flux-2-klein-4b-fp8.safetensors` em `models/diffusion_models`, `qwen_3_4b.safetensors` em `models/text_encoders` e `flux2-vae.safetensors` em `models/vae`. Na galeria, clique em **Usar como referência**, **Trocar roupa** ou **Criar cena** para aproveitar uma imagem gerada. A troca de roupa aceita uma segunda foto com a peça; a cena aceita uma foto opcional do local. O modelo pode alterar detalhes apesar da instrução de preservação. A resolução padrão é 1K para reduzir uso de VRAM; 2K pode não caber em 8 GB.

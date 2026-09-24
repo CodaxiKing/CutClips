@@ -680,3 +680,79 @@ def test_lipsync_batch_caps_at_ten_and_single_comment_stays_single(client, tmp_p
     assert one.status_code == 200
     assert "batch" not in one.json()
     assert one.json()["run_reply"] == "obrigada!"
+
+
+# --------------------------------------------------------------------------- #
+# Fase 5: SSE, exclusão com aviso de espaço e miniaturas do histórico
+# --------------------------------------------------------------------------- #
+
+def test_stream_changes_emits_snapshot_then_only_diffs(tmp_path, monkeypatch):
+    monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
+    _write_job(root=tmp_path / "motion", job_id="a" * 32, status="queued")
+    _write_job(root=tmp_path / "motion", job_id="b" * 32, status="done")
+    last = {}
+    first, last = motion_control._stream_changes(last)
+    assert {job["id"] for job in first} == {"a" * 32, "b" * 32}   # snapshot inicial
+    second, last = motion_control._stream_changes(last)
+    assert second == []                                           # nada mudou
+    _write_job(root=tmp_path / "motion", job_id="a" * 32, status="processing")
+    third, last = motion_control._stream_changes(last)
+    assert [(job["id"], job["status"]) for job in third] == [("a" * 32, "processing")]
+    # Job excluído sai da memória sem reemitir nada.
+    (tmp_path / "motion" / ("b" * 32) / "status.json").unlink()
+    (tmp_path / "motion" / ("b" * 32)).rmdir()
+    fourth, last = motion_control._stream_changes(last)
+    assert fourth == [] and ("b" * 32) not in last
+
+
+def test_stream_and_storage_routes_are_registered_before_the_wildcard():
+    """/stream e /storage precisam vir antes de /{job_id}: "stream" é alnum e casaria com o parâmetro.
+
+    O TestClient bufferiza a resposta inteira, então o stream infinito não dá para
+    exercitar aqui — o risco real é a ordem de registro das rotas.
+    """
+    paths = [route.path for route in motion_control.router.routes]
+    wildcard = paths.index("/api/motion-control/{job_id}")
+    assert paths.index("/api/motion-control/stream") < wildcard
+    assert paths.index("/api/motion-control/storage") < wildcard
+
+
+def test_storage_counts_bytes_and_delete_frees_the_folder(client, tmp_path, monkeypatch):
+    root = _isolated_root(tmp_path, monkeypatch)
+    folder = _write_job(root, "9" * 32, status="done")
+    (folder / "result.mp4").write_bytes(b"x" * 2048)
+    space = client.get("/api/motion-control/storage").json()
+    assert space["jobs"] == 1
+    assert space["bytes"] >= 2048
+    assert client.delete(f"/api/motion-control/{'9' * 32}").status_code == 200
+    assert not folder.exists()
+    assert client.get("/api/motion-control/storage").json() == {"bytes": 0, "jobs": 0}
+
+
+def test_delete_needs_an_existing_finished_job(client, tmp_path, monkeypatch):
+    root = _isolated_root(tmp_path, monkeypatch)
+    active = _write_job(root, "7" * 32, status="processing")
+    assert client.delete(f"/api/motion-control/{'7' * 32}").status_code == 409
+    assert active.exists()                                         # recusa não apaga nada
+    _write_job(root, "8" * 32, status="error")
+    assert client.delete(f"/api/motion-control/{'8' * 32}").status_code == 200
+    assert client.delete(f"/api/motion-control/{'8' * 32}").status_code == 404
+    assert client.delete(f"/api/motion-control/{'x' * 32}").status_code == 404
+
+
+def test_thumb_endpoint_waits_for_the_video_and_marks_failures(client, tmp_path, monkeypatch):
+    root = _isolated_root(tmp_path, monkeypatch)
+    waiting = _write_job(root, "a" * 32, status="queued")
+    # Sem vídeo ainda: 404, mas sem marcar falha — quando o vídeo sair, gera.
+    assert client.get(f"/api/motion-control/{'a' * 32}/thumb").status_code == 404
+    assert not (waiting / ".nothumb").exists()
+    folder = _write_job(root, "b" * 32, status="done")
+    (folder / "result.mp4").write_bytes(b"video")
+    response = client.get(f"/api/motion-control/{'b' * 32}/thumb")
+    if response.status_code == 404:
+        # Sem ffmpeg disponível a miniatura falha uma vez e fica marcada (.nothumb).
+        assert (folder / ".nothumb").exists()
+        assert client.get(f"/api/motion-control/{'b' * 32}/thumb").status_code == 404
+    else:
+        assert response.headers["content-type"].startswith("image/jpeg")
+        assert (folder / "thumb.jpg").is_file()

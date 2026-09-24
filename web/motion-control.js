@@ -71,9 +71,10 @@
       <p class="mc-note">Um job, dois vídeos: ela dançando com o produto e ela falando o roteiro de venda. Exige Wan, FLUX (se houver foto do produto) e o fluxo de lip-sync configurado. Com <code>CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW</code>, sai um terceiro vídeo com ela dançando e falando ao mesmo tempo.</p>
     </form><div><div class="mc-card"><h2>Resultado</h2><div class="mc-status" id="mcConfig">Verificando ComfyUI…</div>
       <div class="mc-status" id="mcQueue" hidden></div>
+      <label class="mc-check"><input type="checkbox" id="mcNotify"> Avisar no desktop quando uma geração concluir ou falhar</label>
       <div class="mc-result" id="mcResult"><p>Envie uma imagem e um vídeo para começar. O resultado aparecerá aqui.</p></div>
       <p class="mc-error" id="mcError" role="alert" hidden></p></div>
-      <div class="mc-card mc-history"><h2>Histórico</h2><div class="mc-history-list" id="mcHistory">Nenhuma geração ainda.</div></div>
+      <div class="mc-card mc-history"><h2>Histórico</h2><div class="mc-history-list" id="mcHistory">Nenhuma geração ainda.</div><p class="mc-note" id="mcStorage" hidden></p></div>
     </div></div>`;
   const form = root.querySelector('#mcForm');
   const tryonForm = root.querySelector('#mcTryonForm');
@@ -122,6 +123,13 @@
     const base = stageBase(job);
     return ACTIVE.includes(job.status) && typeof job.progress === 'number'
       ? `${base} · ${job.progress}%` : base;
+  }
+
+  function originLabel(job) {
+    return job.kind === 'oneshot' ? `Venda · ${job.product_name || 'Produto'}`
+      : job.kind === 'tryon' ? `${job.mode === 'product' ? 'Produto' : 'Trocar roupa'} · ${job.outfit_name || 'Imagem'}`
+      : job.kind === 'lipsync' ? `Falando · ${job.reply ? 'resposta ao comentário' : job.audio_name || 'texto'}`
+      : (job.image_name || 'Imagem');
   }
 
   function preview(input, holder, tag) {
@@ -429,6 +437,48 @@
     box.className = `mc-status ${problems.length ? 'bad' : 'good'}`;
   }
 
+  const lastStatus = new Map();
+  const notifyBox = root.querySelector('#mcNotify');
+
+  function initNotifications() {
+    if (!('Notification' in window)) { notifyBox.closest('label').hidden = true; return; }
+    // Só liga com permissão já concedida: sem pedido de permissão não solicitado.
+    notifyBox.checked = localStorage.getItem('mcNotify') === '1' && Notification.permission === 'granted';
+    notifyBox.addEventListener('change', async () => {
+      if (notifyBox.checked && Notification.permission !== 'granted') {
+        notifyBox.checked = (await Notification.requestPermission()) === 'granted';
+      }
+      localStorage.setItem('mcNotify', notifyBox.checked ? '1' : '0');
+    });
+  }
+
+  function watchNotifications(jobs) {
+    const enabled = notifyBox.checked && ('Notification' in window) && Notification.permission === 'granted';
+    for (const job of jobs) {
+      const previous = lastStatus.get(job.id);
+      lastStatus.set(job.id, job.status);
+      // Só transição de "em andamento" para parado: o primeiro snapshot não avisa.
+      if (!enabled || !previous || previous === job.status
+          || !ACTIVE.includes(previous) || ACTIVE.includes(job.status)) continue;
+      const title = job.status === 'done' ? 'Geração concluída'
+        : job.status === 'error' ? 'Geração falhou' : 'Geração cancelada';
+      new Notification(title, {body: `${originLabel(job)} · ${stageBase(job)}`, tag: job.id});
+    }
+  }
+
+  function loadStorage() {
+    fetch('/api/motion-control/storage').then(r => r.json()).then(space => {
+      const box = root.querySelector('#mcStorage');
+      const gb = space.bytes / (1024 ** 3);
+      const size = gb >= 1 ? `${gb.toFixed(1).replace('.', ',')} GB`
+        : `${Math.max(1, Math.round(space.bytes / (1024 ** 2)))} MB`;
+      box.hidden = false;
+      box.textContent = gb >= 10
+        ? `Histórico ocupando ${size} em ${space.jobs} gerações — vale excluir as antigas (botão Excluir).`
+        : `Histórico ocupando ${size} em ${space.jobs} gerações.`;
+    }).catch(() => { /* API fora do ar: a linha fica escondida. */ });
+  }
+
   async function refresh() {
     if (location.hash !== '#/motion-control') return;
     try {
@@ -437,17 +487,36 @@
       if (!data.jobs.length) history.textContent = 'Nenhuma geração ainda.';
       for (const job of data.jobs) {
         const row = document.createElement('div'); row.className = 'mc-job';
+        const thumb = document.createElement('img');
+        thumb.className = 'mc-thumb'; thumb.alt = ''; thumb.loading = 'lazy';
+        thumb.src = `/api/motion-control/${job.id}/thumb`;
+        thumb.addEventListener('error', () => thumb.remove());
         const label = document.createElement('span');
-        const origin = job.kind === 'oneshot' ? `Venda · ${job.product_name || 'Produto'}`
-          : job.kind === 'tryon' ? `${job.mode === 'product' ? 'Produto' : 'Trocar roupa'} · ${job.outfit_name || 'Imagem'}`
-          : job.kind === 'lipsync' ? `Falando · ${job.reply ? 'resposta ao comentário' : job.audio_name || 'texto'}`
-          : (job.image_name || 'Imagem');
-        label.textContent = `${origin} · ${stageLabel(job)}`;
-        row.append(label);
+        label.textContent = `${originLabel(job)} · ${stageLabel(job)}`;
+        row.append(thumb, label);
         const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Ver';
         button.addEventListener('click', () => { current = job.id; show(job); }); row.append(button);
+        const remove = document.createElement('button');
+        remove.type = 'button'; remove.className = 'mc-danger'; remove.textContent = 'Excluir';
+        remove.addEventListener('click', async () => {
+          if (!confirm(`Excluir “${label.textContent}”? Os arquivos saem do disco.`)) return;
+          remove.disabled = true;
+          try {
+            const response = await fetch(`/api/motion-control/${job.id}`, {method: 'DELETE'});
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Não foi possível excluir.');
+            if (current === job.id) {
+              current = null; displayed = '';
+              const note = document.createElement('p'); note.textContent = 'Geração excluída.';
+              result.replaceChildren(note);
+            }
+          } catch (exc) { error.textContent = exc.message; error.hidden = false; }
+          await refresh();
+        });
+        row.append(remove);
         history.append(row);
       }
+      watchNotifications(data.jobs);
       const selected = data.jobs.find(j => j.id === current);
       if (selected) show(selected);
       // Fila visível: o ComfyUI renderiza um vídeo por vez, e o usuário precisa
@@ -458,6 +527,7 @@
       queue.textContent = running === 1
         ? '1 geração em andamento · o ComfyUI processa um vídeo por vez.'
         : `${running} gerações em andamento · o ComfyUI processa um vídeo por vez.`;
+      loadStorage();
     } catch { /* Keep the previous history while the API is unavailable. */ }
   }
 
@@ -704,6 +774,22 @@
     finally { button.disabled = false; button.textContent = 'Gerar os dois vídeos'; }
   });
 
-  config(); refresh(); setInterval(refresh, 4000);
+  function listen() {
+    // SSE empurra a tela na hora em que um status.json muda; o EventSource
+    // reconecta sozinho e o heartbeat de 15 s cobre proxy que não repassa o stream.
+    let pending = null;
+    const bump = () => {
+      if (pending) return;
+      pending = setTimeout(() => { pending = null; refresh(); }, 250);
+    };
+    if ('EventSource' in window) {
+      const source = new EventSource('/api/motion-control/stream');
+      source.onmessage = bump;
+      source.onerror = bump;
+    }
+    setInterval(bump, 15000);
+  }
+
+  initNotifications(); config(); refresh(); listen();
   window.addEventListener('hashchange', () => { if (location.hash === '#/motion-control') { config(); refresh(); } });
 })();
