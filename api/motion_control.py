@@ -51,7 +51,54 @@ FLUX_MODELS = (("UNETLoader", "unet_name", "CUTCLIPS_FLUX_MODEL", "flux-2-klein-
                ("CLIPLoader", "clip_name", "CUTCLIPS_FLUX_TEXT_ENCODER", "qwen_3_4b.safetensors"),
                ("VAELoader", "vae_name", "CUTCLIPS_FLUX_VAE", "flux2-vae.safetensors"))
 ACTIVE_STATUS = {"queued", "speaking", "dressing", "uploading", "processing", "talking"}
-_lock = threading.Lock()
+# RLock: o retry lê e regrava o status.json dentro da seção crítica sem deadlock.
+_lock = threading.RLock()
+
+
+class Cancelled(RuntimeError):
+    """Cancelamento pedido pelo usuário: encerra o job sem virar erro."""
+
+
+def _cancelled(job_id: str) -> bool:
+    return (ROOT / job_id / "cancel.flag").exists()
+
+
+def _check_cancel(job_id: str) -> None:
+    """Levanta Cancelled quando a bandeira do cancelamento existe."""
+    if _cancelled(job_id):
+        raise Cancelled
+
+
+def _stage_done(job_id: str, flag: str, artifact: Path) -> bool:
+    """Retomada: a etapa só é pulada se a bandeira do status.json existe E o arquivo está completo."""
+    try:
+        data = json.loads((ROOT / job_id / "status.json").read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return False
+    return bool(data.get(flag)) and artifact.is_file() and artifact.stat().st_size > 0
+
+
+def _fail(job_id: str, exc: Exception) -> None:
+    """Erro de job: cancelamento pendente vira 'cancelled'; FFmpeg mantém a mensagem dele."""
+    if _cancelled(job_id):
+        _save(job_id, status="cancelled")
+    elif isinstance(exc, subprocess.CalledProcessError):
+        _save(job_id, status="error", error="FFmpeg falhou: " + exc.stderr.decode(errors="replace")[-500:])
+    else:
+        _save(job_id, status="error", error=str(exc)[:1000])
+
+
+def _finish(job_id: str, **changes) -> dict:
+    """Conclusão que respeita um cancelamento pedido durante o último estágio."""
+    return _save(job_id, status="cancelled" if _cancelled(job_id) else "done", **changes)
+
+
+def _guard_speech(path: Path) -> None:
+    """TTS medido antes do ComfyUI: texto longo falha aqui, em segundos, não depois do render."""
+    seconds = audio_duration(path)
+    if not 1 <= seconds <= MAX_SPEECH_SECONDS:
+        raise RuntimeError(f"A fala gerada tem {seconds:.0f} s e o lip-sync aceita de 1 a {MAX_SPEECH_SECONDS} s. "
+                           "Encurte o texto e tente novamente.")
 
 
 def _base_url() -> str:
@@ -155,6 +202,8 @@ def _aspect_for(width: int, height: int) -> str:
 
 
 def _submit(client: httpx.Client, flow: dict, job_id: str) -> str:
+    # Cancelamento checado aqui: um job cancelado não manda render novo para o ComfyUI.
+    _check_cancel(job_id)
     response = client.post("/prompt", json={"prompt": flow, "client_id": job_id})
     if response.is_error:
         raise RuntimeError(f"ComfyUI recusou o fluxo ({response.status_code}): {response.text[:500]}")
@@ -164,11 +213,12 @@ def _submit(client: httpx.Client, flow: dict, job_id: str) -> str:
     return body["prompt_id"]
 
 
-def _await_entry(client: httpx.Client, prompt_id: str, output_id: str, *, output_keys: tuple[str, ...],
-                 minutes: int, missing: str, interval: int = 4):
+def _await_entry(client: httpx.Client, prompt_id: str, output_id: str, *, job_id: str,
+                 output_keys: tuple[str, ...], minutes: int, missing: str, interval: int = 4):
     """Espera o histórico do ComfyUI devolver a saída pedida e devolve a primeira entrada."""
     deadline = time.monotonic() + 60 * minutes
     while time.monotonic() < deadline:
+        _check_cancel(job_id)
         time.sleep(interval)
         response = client.get(f"/history/{prompt_id}")
         response.raise_for_status()
@@ -187,20 +237,27 @@ def _await_entry(client: httpx.Client, prompt_id: str, output_id: str, *, output
     raise RuntimeError(f"Tempo de espera excedido no ComfyUI ({minutes} min)")
 
 
-def _stream(client: httpx.Client, entry: dict, target: Path, limit: int, too_big: str) -> None:
+def _stream(client: httpx.Client, entry: dict, target: Path, limit: int, too_big: str,
+            job_id: str = "") -> None:
     with client.stream("GET", "/view", params={
         "filename": entry["filename"], "subfolder": entry.get("subfolder", ""),
         "type": entry.get("type", "output"),
     }) as download:
         download.raise_for_status()
         size = 0
-        with target.open("wb") as out:
-            for chunk in download.iter_bytes(1024 * 1024):
-                size += len(chunk)
-                if size > limit:
-                    target.unlink(missing_ok=True)
-                    raise RuntimeError(too_big)
-                out.write(chunk)
+        try:
+            with target.open("wb") as out:
+                for chunk in download.iter_bytes(1024 * 1024):
+                    if job_id:
+                        _check_cancel(job_id)
+                    size += len(chunk)
+                    if size > limit:
+                        target.unlink(missing_ok=True)
+                        raise RuntimeError(too_big)
+                    out.write(chunk)
+        except Cancelled:
+            target.unlink(missing_ok=True)
+            raise
 
 
 def _prepare_motion(source: Path, target: Path) -> int:
@@ -225,7 +282,12 @@ def _add_audio(video: Path, motion: Path) -> None:
 
 def _run(job_id: str, prompt: str) -> None:
     folder = ROOT / job_id
+    result = folder / "result.mp4"
     try:
+        _check_cancel(job_id)
+        if _stage_done(job_id, "done_dance", result):
+            _finish(job_id)
+            return
         with httpx.Client(base_url=_base_url(), timeout=httpx.Timeout(60, read=180)) as client:
             info = client.get("/object_info")
             info.raise_for_status()
@@ -245,16 +307,14 @@ def _run(job_id: str, prompt: str) -> None:
                 workflow, output_id = wan_animate_workflow(image, video, prompt, width, height, frames)
             prompt_id = _submit(client, workflow, job_id)
             _save(job_id, status="processing", prompt_id=prompt_id)
-            entry = _await_entry(client, prompt_id, output_id, output_keys=("videos", "gifs"), minutes=90, interval=5,
+            entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("videos", "gifs"),
+                                 minutes=90, interval=5,
                                  missing="O ComfyUI concluiu a tarefa sem devolver um vídeo. Verifique o nó SaveVideo.")
-            result = folder / "result.mp4"
-            _stream(client, entry, result, MAX_RESULT, "O vídeo gerado excede 600 MB")
+            _stream(client, entry, result, MAX_RESULT, "O vídeo gerado excede 600 MB", job_id=job_id)
             _add_audio(result, prepared)
-            _save(job_id, status="done")
-    except subprocess.CalledProcessError as exc:
-        _save(job_id, status="error", error="FFmpeg falhou: " + exc.stderr.decode(errors="replace")[-500:])
+            _finish(job_id, done_dance=True)
     except Exception as exc:
-        _save(job_id, status="error", error=str(exc)[:1000])
+        _fail(job_id, exc)
 
 
 def _tryon_flux_flow(person: str, outfit: str, description: str, aspect: str, mode: str = "outfit") -> tuple[dict, str]:
@@ -275,33 +335,43 @@ def _run_tryon(job_id: str, description: str, mode: str = "outfit") -> None:
     """Etapa 1: FLUX veste a roupa (ou aplica o produto) na foto. Etapa 2: Wan Animate anima."""
     from api.influencers import _reference  # import tardio: api.influencers já importa este módulo
     folder = ROOT / job_id
+    composed = folder / COMPOSED_NAME
+    result = folder / "result.mp4"
     try:
+        _check_cancel(job_id)
+        dressed = _stage_done(job_id, "done_dress", composed)
+        if dressed and _stage_done(job_id, "done_dance", result):
+            _finish(job_id)
+            return
         with httpx.Client(base_url=_base_url(), timeout=httpx.Timeout(60, read=180)) as client:
             info = client.get("/object_info")
             info.raise_for_status()
             info = info.json()
             if not _custom_template() and (missing := _builtin_missing(info)):
                 raise RuntimeError("Wan Animate incompleto no ComfyUI. Faltando: " + ", ".join(missing))
-            flux_ready, flux_missing = _flux_status(info)
-            if not flux_ready:
-                raise RuntimeError("FLUX incompleto no ComfyUI. Faltando: " + ", ".join(flux_missing))
             source = next(path for path in folder.glob("motion.*") if path.stem == "motion")
-            media = probe(source)
 
             # Etapa 1 -- a influencer já sai da foto vestindo a peça escolhida.
-            _save(job_id, status="dressing")
-            person_file = next(path for path in folder.glob("person.*") if path.stem == "person")
-            outfit_file = next(path for path in folder.glob("outfit.*") if path.stem == "outfit")
-            person = _upload(client, _reference(person_file))
-            outfit = _upload(client, _reference(outfit_file))
-            flow, output_id = _tryon_flux_flow(person, outfit, description, _aspect_for(media.width, media.height), mode)
-            prompt_id = _submit(client, flow, job_id)
-            _save(job_id, status="dressing", prompt_id=prompt_id)
-            entry = _await_entry(client, prompt_id, output_id, output_keys=("images",), minutes=45,
-                                 missing="O ComfyUI concluiu a etapa da roupa sem devolver uma imagem.")
-            composed = folder / COMPOSED_NAME
-            _stream(client, entry, composed, MAX_RESULT, "A imagem da etapa 1 excede 600 MB")
-            _save(job_id, composed=COMPOSED_NAME)
+            # Retomada: se a foto composta já existe, o FLUX não roda de novo.
+            if not dressed:
+                flux_ready, flux_missing = _flux_status(info)
+                if not flux_ready:
+                    raise RuntimeError("FLUX incompleto no ComfyUI. Faltando: " + ", ".join(flux_missing))
+                media = probe(source)
+                _save(job_id, status="dressing")
+                person_file = next(path for path in folder.glob("person.*") if path.stem == "person")
+                outfit_file = next(path for path in folder.glob("outfit.*") if path.stem == "outfit")
+                person = _upload(client, _reference(person_file))
+                outfit = _upload(client, _reference(outfit_file))
+                flow, output_id = _tryon_flux_flow(person, outfit, description,
+                                                   _aspect_for(media.width, media.height), mode)
+                prompt_id = _submit(client, flow, job_id)
+                _save(job_id, status="dressing", prompt_id=prompt_id)
+                entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("images",),
+                                     minutes=45,
+                                     missing="O ComfyUI concluiu a etapa da roupa sem devolver uma imagem.")
+                _stream(client, entry, composed, MAX_RESULT, "A imagem da etapa 1 excede 600 MB", job_id=job_id)
+                _save(job_id, composed=COMPOSED_NAME, done_dress=True)
 
             # Etapa 2 -- a foto já vestida segue os movimentos do vídeo de dança.
             _save(job_id, status="uploading")
@@ -318,16 +388,14 @@ def _run_tryon(job_id: str, description: str, mode: str = "outfit") -> None:
                                                            width, height, frames)
             prompt_id = _submit(client, workflow, job_id)
             _save(job_id, status="processing", prompt_id=prompt_id)
-            entry = _await_entry(client, prompt_id, output_id, output_keys=("videos", "gifs"), minutes=90, interval=5,
+            entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("videos", "gifs"),
+                                 minutes=90, interval=5,
                                  missing="O ComfyUI concluiu a tarefa sem devolver um vídeo. Verifique o nó SaveVideo.")
-            result = folder / "result.mp4"
-            _stream(client, entry, result, MAX_RESULT, "O vídeo gerado excede 600 MB")
+            _stream(client, entry, result, MAX_RESULT, "O vídeo gerado excede 600 MB", job_id=job_id)
             _add_audio(result, prepared)
-            _save(job_id, status="done")
-    except subprocess.CalledProcessError as exc:
-        _save(job_id, status="error", error="FFmpeg falhou: " + exc.stderr.decode(errors="replace")[-500:])
+            _finish(job_id, done_dance=True)
     except Exception as exc:
-        _save(job_id, status="error", error=str(exc)[:1000])
+        _fail(job_id, exc)
 
 
 def _custom_lipsync() -> bool:
@@ -365,14 +433,18 @@ LIPSYNC_HINT = ("Configure CUTCLIPS_LIPSYNC_WORKFLOW com o caminho de um fluxo d
 def _run_lipsync(job_id: str, text: str, voice: str, reply_to: str = "") -> None:
     """Sintetiza a voz (texto ou resposta a comentários) e manda foto + áudio no ComfyUI."""
     folder = ROOT / job_id
+    speech = folder / "speech.wav"
     try:
-        if text or reply_to:
+        _check_cancel(job_id)
+        if (text or reply_to) and not _stage_done(job_id, "done_speech", speech):
             # TTS local antes de qualquer upload: falha de voz ou da IA aparece aqui, em
             # segundos, e não depois de o ComfyUI já ter começado a renderizar.
             _save(job_id, status="speaking")
             if not text:
                 text = " ".join(reply_script(reply_to))
-            speak(text, folder / "speech.wav", voice)
+            speak(text, speech, voice)
+            _guard_speech(speech)
+            _save(job_id, done_speech=True)
         with httpx.Client(base_url=_base_url(), timeout=httpx.Timeout(60, read=180)) as client:
             info = client.get("/object_info")
             info.raise_for_status()
@@ -389,15 +461,14 @@ def _run_lipsync(job_id: str, text: str, voice: str, reply_to: str = "") -> None
             flow, output_id = _lipsync_flow(image, sound)
             prompt_id = _submit(client, flow, job_id)
             _save(job_id, status="processing", prompt_id=prompt_id)
-            entry = _await_entry(client, prompt_id, output_id, output_keys=("videos", "gifs"), minutes=60, interval=5,
+            entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("videos", "gifs"),
+                                 minutes=60, interval=5,
                                  missing="O ComfyUI concluiu sem devolver um vídeo. Verifique o nó SaveVideo.")
             result = folder / "result.mp4"
-            _stream(client, entry, result, MAX_RESULT, "O vídeo gerado excede 600 MB")
-            _save(job_id, status="done")
-    except subprocess.CalledProcessError as exc:
-        _save(job_id, status="error", error="FFmpeg falhou: " + exc.stderr.decode(errors="replace")[-500:])
+            _stream(client, entry, result, MAX_RESULT, "O vídeo gerado excede 600 MB", job_id=job_id)
+            _finish(job_id)
     except Exception as exc:
-        _save(job_id, status="error", error=str(exc)[:1000])
+        _fail(job_id, exc)
 
 
 def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
@@ -405,15 +476,27 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
     """Dois vídeos: voz primeiro (falha em segundos), FLUX se houver produto, dança e lip-sync."""
     from api.influencers import _reference  # import tardio: api.influencers já importa este módulo
     folder = ROOT / job_id
+    speech = folder / "speech.wav"
+    composed = folder / COMPOSED_NAME
+    result = folder / "result.mp4"
+    talking = folder / "talking.mp4"
     try:
+        _check_cancel(job_id)
+        if _stage_done(job_id, "done_talk", talking):
+            _finish(job_id)
+            return
         with httpx.Client(base_url=_base_url(), timeout=httpx.Timeout(60, read=180)) as client:
             info = client.get("/object_info")
             info.raise_for_status()
             info = info.json()
-            if not _custom_template() and (missing := _builtin_missing(info)):
-                raise RuntimeError("Wan Animate incompleto no ComfyUI. Faltando: " + ", ".join(missing))
             has_product = bool(list(folder.glob("product.*")))
-            if has_product:
+            dressed = _stage_done(job_id, "done_dress", composed)
+            danced = _stage_done(job_id, "done_dance", result)
+            # Cada checagem só é exigida se a etapa dela ainda vai rodar: a retomada
+            # não pode falhar por falta de FLUX quando a foto composta já existe.
+            if not danced and not _custom_template() and (missing := _builtin_missing(info)):
+                raise RuntimeError("Wan Animate incompleto no ComfyUI. Faltando: " + ", ".join(missing))
+            if has_product and not dressed:
                 flux_ready, flux_missing = _flux_status(info)
                 if not flux_ready:
                     raise RuntimeError("FLUX incompleto no ComfyUI. Faltando: " + ", ".join(flux_missing))
@@ -425,15 +508,18 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
 
             source = next(path for path in folder.glob("motion.*") if path.stem == "motion")
             media = probe(source)
+            source_image = next(path for path in folder.glob("person.*") if path.stem == "person")
 
             # Voz primeiro: roteiro + TTS levam segundos, e erro de voz não pode
             # aparecer só depois de dez minutos de render.
-            _save(job_id, status="speaking")
-            text = script.strip() or " ".join(sell_script(product_name, benefit, cta))
-            speak(text, folder / "speech.wav", influencer_voice()["voice"])
-            source_image = next(path for path in folder.glob("person.*") if path.stem == "person")
+            if not _stage_done(job_id, "done_speech", speech):
+                _save(job_id, status="speaking")
+                text = script.strip() or " ".join(sell_script(product_name, benefit, cta))
+                speak(text, speech, influencer_voice()["voice"])
+                _guard_speech(speech)
+                _save(job_id, done_speech=True)
 
-            if has_product:
+            if has_product and not dressed:
                 _save(job_id, status="dressing")
                 product_file = next(path for path in folder.glob("product.*") if path.stem == "product")
                 person = _upload(client, _reference(source_image))
@@ -442,49 +528,52 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
                                                    _aspect_for(media.width, media.height), mode)
                 prompt_id = _submit(client, flow, job_id)
                 _save(job_id, status="dressing", prompt_id=prompt_id)
-                entry = _await_entry(client, prompt_id, output_id, output_keys=("images",), minutes=45,
+                entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("images",),
+                                     minutes=45,
                                      missing="O ComfyUI concluiu a etapa do produto sem devolver uma imagem.")
-                composed = folder / COMPOSED_NAME
-                _stream(client, entry, composed, MAX_RESULT, "A imagem da etapa do produto excede 600 MB")
-                _save(job_id, composed=COMPOSED_NAME)
+                _stream(client, entry, composed, MAX_RESULT, "A imagem da etapa do produto excede 600 MB",
+                        job_id=job_id)
+                _save(job_id, composed=COMPOSED_NAME, done_dress=True)
+                source_image = composed
+            elif dressed:
                 source_image = composed
 
-            # Vídeo de dança -- a primeira metade da entrega.
-            _save(job_id, status="uploading")
-            prepared = folder / "motion-16fps.mp4"
-            frames = _prepare_motion(source, prepared)
-            image = _upload(client, source_image)
-            video = _upload(client, prepared)
-            if _custom_template():
-                workflow, output_id = local_video_workflow(image, video, DEFAULT_MOTION_PROMPT)
-            else:
-                fitted = probe(prepared)
-                width, height = wan_size(fitted.width, fitted.height)
-                workflow, output_id = wan_animate_workflow(image, video, DEFAULT_MOTION_PROMPT,
-                                                           width, height, frames)
-            prompt_id = _submit(client, workflow, job_id)
-            _save(job_id, status="processing", prompt_id=prompt_id)
-            entry = _await_entry(client, prompt_id, output_id, output_keys=("videos", "gifs"), minutes=90, interval=5,
-                                 missing="O ComfyUI concluiu a tarefa sem devolver um vídeo. Verifique o nó SaveVideo.")
-            result = folder / "result.mp4"
-            _stream(client, entry, result, MAX_RESULT, "O vídeo gerado excede 600 MB")
-            _add_audio(result, prepared)
-            _save(job_id, status="talking", dance_ready=True)
+            if not danced:
+                # Vídeo de dança -- a primeira metade da entrega.
+                _save(job_id, status="uploading")
+                prepared = folder / "motion-16fps.mp4"
+                frames = _prepare_motion(source, prepared)
+                image = _upload(client, source_image)
+                video = _upload(client, prepared)
+                if _custom_template():
+                    workflow, output_id = local_video_workflow(image, video, DEFAULT_MOTION_PROMPT)
+                else:
+                    fitted = probe(prepared)
+                    width, height = wan_size(fitted.width, fitted.height)
+                    workflow, output_id = wan_animate_workflow(image, video, DEFAULT_MOTION_PROMPT,
+                                                               width, height, frames)
+                prompt_id = _submit(client, workflow, job_id)
+                _save(job_id, status="processing", prompt_id=prompt_id)
+                entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("videos", "gifs"),
+                                     minutes=90, interval=5,
+                                     missing="O ComfyUI concluiu a tarefa sem devolver um vídeo. Verifique o nó SaveVideo.")
+                _stream(client, entry, result, MAX_RESULT, "O vídeo gerado excede 600 MB", job_id=job_id)
+                _add_audio(result, prepared)
+                _save(job_id, status="talking", dance_ready=True, done_dance=True)
 
             # Lip-sync -- a segunda metade: a mesma cara falando o roteiro de venda.
-            sound = _upload(client, folder / "speech.wav")
+            image = _upload(client, source_image)
+            sound = _upload(client, speech)
             flow, output_id = _lipsync_flow(image, sound)
             prompt_id = _submit(client, flow, job_id)
             _save(job_id, status="talking", prompt_id=prompt_id)
-            entry = _await_entry(client, prompt_id, output_id, output_keys=("videos", "gifs"), minutes=60, interval=5,
+            entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("videos", "gifs"),
+                                 minutes=60, interval=5,
                                  missing="O ComfyUI concluiu sem devolver um vídeo. Verifique o nó SaveVideo.")
-            talking = folder / "talking.mp4"
-            _stream(client, entry, talking, MAX_RESULT, "O vídeo gerado excede 600 MB")
-            _save(job_id, status="done")
-    except subprocess.CalledProcessError as exc:
-        _save(job_id, status="error", error="FFmpeg falhou: " + exc.stderr.decode(errors="replace")[-500:])
+            _stream(client, entry, talking, MAX_RESULT, "O vídeo gerado excede 600 MB", job_id=job_id)
+            _finish(job_id, done_talk=True)
     except Exception as exc:
-        _save(job_id, status="error", error=str(exc)[:1000])
+        _fail(job_id, exc)
 
 
 def _lipsync_config(info: dict | None) -> tuple[bool, list[str]]:
@@ -566,6 +655,7 @@ async def create(
     (folder / "status.json").write_text(json.dumps({
         "id": job_id, "status": "queued", "model": "Wan local", "created_at": time.time(),
         "image_name": Path(image.filename).name, "video_name": Path(video.filename).name,
+        "run_prompt": prompt,
     }, ensure_ascii=False), encoding="utf-8")
     threading.Thread(target=_run, args=(job_id, prompt), daemon=True).start()
     return _record(job_id)
@@ -624,7 +714,7 @@ async def create_tryon(
         "created_at": time.time(),
         "image_name": Path(person.filename).name if has_person else "Influencer IA",
         "outfit_name": Path(outfit.filename).name, "video_name": Path(video.filename).name,
-        "description": description[:160],
+        "description": description[:160], "run_prompt": description,
     }, ensure_ascii=False), encoding="utf-8")
     threading.Thread(target=_run_tryon, args=(job_id, description, mode), daemon=True).start()
     return _record(job_id)
@@ -680,6 +770,9 @@ async def create_lipsync(
             path.unlink()
         folder.rmdir()
         raise
+    # Parâmetros completos (sem truncar) para o retry retomar o mesmo job.
+    run_text = "" if has_audio else speech
+    run_reply = "" if has_audio or run_text else reply
     (folder / "status.json").write_text(json.dumps({
         "id": job_id, "kind": "lipsync", "status": "queued", "model": "Lip-sync local",
         "created_at": time.time(),
@@ -688,9 +781,8 @@ async def create_lipsync(
         "description": speech[:160] if not has_audio else "",
         "reply": reply[:160] if reply and not speech else "",
         "voice": chosen_voice if not has_audio else "",
+        "run_text": run_text, "run_reply": run_reply,
     }, ensure_ascii=False), encoding="utf-8")
-    run_text = "" if has_audio else speech
-    run_reply = "" if has_audio or run_text else reply
     threading.Thread(target=_run_lipsync,
                      args=(job_id, run_text, chosen_voice, run_reply),
                      daemon=True).start()
@@ -768,7 +860,8 @@ async def create_oneshot(
         "image_name": Path(person.filename).name if has_person else "Influencer IA",
         "outfit_name": Path(product.filename).name if has_product else "",
         "video_name": Path(video.filename).name,
-        "product_name": name, "description": description[:160],
+        "product_name": name, "description": description[:160], "run_prompt": description,
+        "benefit": benefit.strip(), "cta": cta.strip(), "script": script,
     }, ensure_ascii=False), encoding="utf-8")
     threading.Thread(target=_run_oneshot, args=(job_id, description, mode, name,
                                                 benefit.strip(), cta.strip(), script),
@@ -796,6 +889,51 @@ def history():
 def status(job_id: str):
     if not job_id.isalnum():
         raise HTTPException(404)
+    return _record(job_id)
+
+
+@router.post("/{job_id}/cancel")
+def cancel(job_id: str):
+    """Para um job em andamento: sinaliza a thread e interrompe o prompt no ComfyUI."""
+    if not job_id.isalnum():
+        raise HTTPException(404)
+    job = _record(job_id)
+    if job["status"] not in ACTIVE_STATUS:
+        raise HTTPException(409, "Esta geração não está em andamento")
+    (ROOT / job_id / "cancel.flag").touch()
+    try:
+        httpx.post(_base_url() + "/interrupt", timeout=5)
+    except (httpx.HTTPError, ValueError):
+        pass  # a bandeira local já basta: a thread para na próxima checagem
+    return _save(job_id, status="cancelled")
+
+
+@router.post("/{job_id}/retry")
+def retry(job_id: str):
+    """Retoma um job com erro ou cancelado pulando as etapas que já terminaram."""
+    if not job_id.isalnum():
+        raise HTTPException(404)
+    with _lock:
+        job = _record(job_id)
+        if job["status"] in ACTIVE_STATUS:
+            raise HTTPException(409, "Esta geração já está em andamento")
+        if job["status"] not in {"error", "cancelled"}:
+            raise HTTPException(409, "Só é possível tentar de novo uma geração com erro ou cancelada")
+        (ROOT / job_id / "cancel.flag").unlink(missing_ok=True)
+        _save(job_id, status="queued", created_at=time.time(), error="")
+        kind = job.get("kind", "motion")
+        if kind == "tryon":
+            target, args = _run_tryon, (job_id, job.get("run_prompt", ""), job.get("mode", "outfit"))
+        elif kind == "lipsync":
+            target, args = _run_lipsync, (job_id, job.get("run_text", ""), job.get("voice", ""),
+                                           job.get("run_reply", ""))
+        elif kind == "oneshot":
+            target, args = _run_oneshot, (job_id, job.get("run_prompt", ""), job.get("mode", "product"),
+                                          job.get("product_name", ""), job.get("benefit", ""),
+                                          job.get("cta", ""), job.get("script", ""))
+        else:
+            target, args = _run, (job_id, job.get("run_prompt", DEFAULT_MOTION_PROMPT))
+    threading.Thread(target=target, args=args, daemon=True).start()
     return _record(job_id)
 
 

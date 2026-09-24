@@ -35,5 +35,9 @@
 .mc-composed{text-align:center;margin-bottom:10px}
 .mc-composed img{max-height:170px;max-width:100%;border-radius:10px;display:block;margin:0 auto 6px}
 .mc-composed span{font-size:12px;color:var(--muted)}
+.mc-actions{display:flex;gap:8px;justify-content:center;margin-top:8px}
+.mc-mini{padding:9px 15px;border-radius:9px;border:1px solid var(--line-2);background:var(--surface-3);color:var(--fg);font:inherit;font-size:13px;cursor:pointer}
+.mc-mini:hover{border-color:#b8f447;color:#b8f447}
+.mc-mini:disabled{opacity:.6;cursor:default}
 @media(max-width:800px){.mc-grid{grid-template-columns:1fr}.mc-options{grid-template-columns:1fr 1fr}}
 

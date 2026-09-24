@@ -1,8 +1,10 @@
 """Motion Control request validation without remote credits."""
 import io
 import json
+import subprocess
 from types import SimpleNamespace
 
+import pytest
 from PIL import Image
 
 from api import motion_control
@@ -278,3 +280,148 @@ def test_oneshot_rejects_long_video(client, tmp_path, monkeypatch):
                            files=_oneshot_files())
     assert response.status_code == 422
     assert not list((tmp_path / "motion").glob("*"))
+
+
+def _isolated_root(tmp_path, monkeypatch):
+    root = tmp_path / "motion"
+    monkeypatch.setattr(motion_control, "ROOT", root)
+    # O cancelamento tenta interromper o ComfyUI: aponta para uma porta morta para
+    # a chamada falhar rápido e sem rede real.
+    monkeypatch.setenv("CUTCLIPS_COMFYUI_URL", "http://127.0.0.1:9")
+    return root
+
+
+def _write_job(root, job_id, **extra):
+    folder = root / job_id
+    folder.mkdir(parents=True, exist_ok=True)
+    data = {"id": job_id, "status": "queued", "created_at": 1.0}
+    data.update(extra)
+    (folder / "status.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return folder
+
+
+def test_cancel_marks_the_job_and_only_active_jobs_can_be_cancelled(client, tmp_path, monkeypatch):
+    """Cancelar derruba o job para 'cancelled' com a bandeira no lugar; de novo dá 409."""
+    root = _isolated_root(tmp_path, monkeypatch)
+    monkeypatch.setattr(motion_control, "_run_lipsync", lambda *args: None)
+    created = client.post("/api/motion-control/lipsync", data={"text": "Oi, tudo bem?"},
+                          files={"person": ("person.png", _png(), "image/png")})
+    assert created.status_code == 200
+    job_id = created.json()["id"]
+
+    cancelled = client.post(f"/api/motion-control/{job_id}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert (root / job_id / "cancel.flag").is_file()
+
+    assert client.post(f"/api/motion-control/{job_id}/cancel").status_code == 409
+    assert client.post(f"/api/motion-control/{'f' * 32}/cancel").status_code == 404
+
+
+def test_cancel_is_rejected_for_finished_jobs(client, tmp_path, monkeypatch):
+    root = _isolated_root(tmp_path, monkeypatch)
+    _write_job(root, "c" * 32, status="done")
+    assert client.post(f"/api/motion-control/{'c' * 32}/cancel").status_code == 409
+    _write_job(root, "d" * 32, status="error")
+    assert client.post(f"/api/motion-control/{'d' * 32}/cancel").status_code == 409
+
+
+def test_retry_restarts_with_stored_parameters_and_clears_the_cancel_flag(client, tmp_path, monkeypatch):
+    """Retry volta a rodar o job com os parâmetros originais, pulando o cancelamento antigo."""
+    root = _isolated_root(tmp_path, monkeypatch)
+    seen = []
+    monkeypatch.setattr(motion_control, "_run_tryon", lambda *args: seen.append(args))
+    job_id = "a" * 32
+    folder = _write_job(root, job_id, kind="tryon", mode="product", status="cancelled",
+                        run_prompt="mostre o perfume", error="Falhou antes")
+    (folder / "cancel.flag").touch()
+
+    response = client.post(f"/api/motion-control/{job_id}/retry")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "queued"
+    assert body["error"] == ""
+    assert not (folder / "cancel.flag").exists()
+    assert seen == [(job_id, "mostre o perfume", "product")]
+    # Segundo clique não pode empilhar outra thread em cima da mesma.
+    assert client.post(f"/api/motion-control/{job_id}/retry").status_code == 409
+
+
+def test_retry_reruns_each_kind_with_its_own_runner(client, tmp_path, monkeypatch):
+    root = _isolated_root(tmp_path, monkeypatch)
+    calls = []
+    monkeypatch.setattr(motion_control, "_run_lipsync", lambda *args: calls.append(("lipsync", args)))
+    monkeypatch.setattr(motion_control, "_run_oneshot", lambda *args: calls.append(("oneshot", args)))
+    monkeypatch.setattr(motion_control, "_run", lambda *args: calls.append(("motion", args)))
+
+    _write_job(root, "e" * 32, kind="lipsync", status="error",
+               run_text="Tudo ótimo", voice="Maria", run_reply="")
+    client.post(f"/api/motion-control/{'e' * 32}/retry")
+    _write_job(root, "f" * 32, kind="oneshot", status="error", mode="product",
+               run_prompt="descreva", product_name="Sérum", benefit="b", cta="c", script="s")
+    client.post(f"/api/motion-control/{'f' * 32}/retry")
+    _write_job(root, "1" * 32, status="error", run_prompt="dance prompt")
+    client.post(f"/api/motion-control/{'1' * 32}/retry")
+
+    assert calls[0] == ("lipsync", ("e" * 32, "Tudo ótimo", "Maria", ""))
+    assert calls[1] == ("oneshot", ("f" * 32, "descreva", "product", "Sérum", "b", "c", "s"))
+    assert calls[2] == ("motion", ("1" * 32, "dance prompt"))
+
+
+def test_retry_needs_a_failed_job(client, tmp_path, monkeypatch):
+    root = _isolated_root(tmp_path, monkeypatch)
+    _write_job(root, "2" * 32, kind="lipsync", status="done")
+    assert client.post(f"/api/motion-control/{'2' * 32}/retry").status_code == 409
+    assert client.post(f"/api/motion-control/{'3' * 32}/retry").status_code == 404
+
+
+def test_stage_done_only_skips_when_flag_and_file_agree(tmp_path, monkeypatch):
+    """Retomada pula a etapa só com bandeira salva E arquivo completo."""
+    root = _isolated_root(tmp_path, monkeypatch)
+    job_id = "4" * 32
+    folder = _write_job(root, job_id, status="error")
+    artifact = folder / "result.mp4"
+    artifact.write_bytes(b"video")
+    assert motion_control._stage_done(job_id, "done_dance", artifact) is False
+    (folder / "status.json").write_text(json.dumps({"id": job_id, "done_dance": True}), encoding="utf-8")
+    assert motion_control._stage_done(job_id, "done_dance", artifact) is True
+    artifact.unlink()
+    assert motion_control._stage_done(job_id, "done_dance", artifact) is False
+
+
+def test_guard_speech_rejects_generated_audio_over_the_limit(tmp_path, monkeypatch):
+    """TTS sintetizado é medido antes do ComfyUI: erro em segundos, não depois do render."""
+    path = tmp_path / "speech.wav"
+    path.write_bytes(b"wav")
+    monkeypatch.setattr(motion_control, "audio_duration", lambda p: 74.6)
+    with pytest.raises(RuntimeError, match="60"):
+        motion_control._guard_speech(path)
+    monkeypatch.setattr(motion_control, "audio_duration", lambda p: 12)
+    assert motion_control._guard_speech(path) is None
+    monkeypatch.setattr(motion_control, "audio_duration", lambda p: 0.4)
+    with pytest.raises(RuntimeError):
+        motion_control._guard_speech(path)
+
+
+def test_fail_prefers_a_pending_cancel_and_finish_respects_the_flag(tmp_path, monkeypatch):
+    root = _isolated_root(tmp_path, monkeypatch)
+    job_id = "5" * 32
+    folder = _write_job(root, job_id, status="processing")
+    (folder / "cancel.flag").touch()
+    motion_control._fail(job_id, RuntimeError("ComfyUI parou"))
+    status = json.loads((folder / "status.json").read_text(encoding="utf-8"))
+    assert status["status"] == "cancelled"
+    (folder / "cancel.flag").unlink()
+    motion_control._fail(job_id, RuntimeError("quebrou"))
+    assert json.loads((folder / "status.json").read_text(encoding="utf-8"))["error"] == "quebrou"
+    motion_control._fail(job_id, subprocess.CalledProcessError(1, ["ffmpeg"], stderr=b"boom"))
+    assert json.loads((folder / "status.json").read_text(encoding="utf-8"))["error"].startswith("FFmpeg falhou")
+    # Conclusão durante um cancelamento vira cancelled, não done.
+    (folder / "cancel.flag").touch()
+    motion_control._finish(job_id)
+    assert json.loads((folder / "status.json").read_text(encoding="utf-8"))["status"] == "cancelled"
+    (folder / "cancel.flag").unlink()
+    motion_control._finish(job_id, done_dance=True)
+    final = json.loads((folder / "status.json").read_text(encoding="utf-8"))
+    assert final["status"] == "done"
+    assert final["done_dance"] is True

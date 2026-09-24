@@ -66,6 +66,7 @@
       <button type="submit" class="mc-generate" id="slGenerate">Gerar os dois vídeos</button>
       <p class="mc-note">Um job, dois vídeos: ela dançando com o produto e ela falando o roteiro de venda. Exige Wan, FLUX (se houver foto do produto) e o fluxo de lip-sync configurado.</p>
     </form><div><div class="mc-card"><h2>Resultado</h2><div class="mc-status" id="mcConfig">Verificando ComfyUI…</div>
+      <div class="mc-status" id="mcQueue" hidden></div>
       <div class="mc-result" id="mcResult"><p>Envie uma imagem e um vídeo para começar. O resultado aparecerá aqui.</p></div>
       <p class="mc-error" id="mcError" role="alert" hidden></p></div>
       <div class="mc-card mc-history"><h2>Histórico</h2><div class="mc-history-list" id="mcHistory">Nenhuma geração ainda.</div></div>
@@ -90,13 +91,15 @@
   let speechMode = 'text';
   let activePane = 'motion';
   let configData = null;
-  const stateText = {queued:'Na fila', speaking:'Gerando a voz', dressing:'Vestindo a roupa · etapa 1 de 2', uploading:'Enviando ao ComfyUI', processing:'Gerando vídeo', done:'Concluído', error:'Falhou'};
+  const ACTIVE = ['queued', 'speaking', 'dressing', 'uploading', 'processing', 'talking'];
+  const stateText = {queued:'Na fila', speaking:'Gerando a voz', dressing:'Vestindo a roupa · etapa 1 de 2', uploading:'Enviando ao ComfyUI', processing:'Gerando vídeo', done:'Concluído', error:'Falhou', cancelled:'Cancelado'};
 
   function stageLabel(job) {
     if (job.kind === 'oneshot') {
       const one = {queued:'Na fila', speaking:'Gravando a voz da influencer', dressing:'Aplicando o produto',
                    uploading:'Preparando o vídeo de dança', processing:'Gerando o vídeo de dança',
-                   talking:'Sincronizando os lábios', done:'Concluído · 2 vídeos', error:'Falhou'};
+                   talking:'Sincronizando os lábios', done:'Concluído · 2 vídeos', error:'Falhou',
+                   cancelled:'Cancelado'};
       return one[job.status] || job.status;
     }
     let base = stateText[job.status] || job.status;
@@ -430,7 +433,47 @@
       }
       const selected = data.jobs.find(j => j.id === current);
       if (selected) show(selected);
+      // Fila visível: o ComfyUI renderiza um vídeo por vez, e o usuário precisa
+      // saber por que o segundo job não começou.
+      const running = data.jobs.filter(job => ACTIVE.includes(job.status)).length;
+      const queue = root.querySelector('#mcQueue');
+      queue.hidden = running === 0;
+      queue.textContent = running === 1
+        ? '1 geração em andamento · o ComfyUI processa um vídeo por vez.'
+        : `${running} gerações em andamento · o ComfyUI processa um vídeo por vez.`;
     } catch { /* Keep the previous history while the API is unavailable. */ }
+  }
+
+  function actions(job) {
+    const wrap = document.createElement('div'); wrap.className = 'mc-actions';
+    if (ACTIVE.includes(job.status)) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'mc-mini'; button.textContent = 'Cancelar geração';
+      button.addEventListener('click', async () => {
+        button.disabled = true; button.textContent = 'Cancelando…';
+        try {
+          const response = await fetch(`/api/motion-control/${job.id}/cancel`, {method: 'POST'});
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível cancelar.');
+        } catch (exc) { error.textContent = exc.message; error.hidden = false; }
+        await refresh();
+      });
+      wrap.append(button);
+    } else if (job.status === 'error' || job.status === 'cancelled') {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'mc-mini'; button.textContent = 'Tentar de novo';
+      button.addEventListener('click', async () => {
+        button.disabled = true; button.textContent = 'Retomando…';
+        try {
+          const response = await fetch(`/api/motion-control/${job.id}/retry`, {method: 'POST'});
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível tentar de novo.');
+        } catch (exc) { error.textContent = exc.message; error.hidden = false; }
+        await refresh();
+      });
+      wrap.append(button);
+    }
+    return wrap;
   }
 
   function show(job) {
@@ -471,6 +514,7 @@
       } else {
         const message = document.createElement('p'); message.textContent = stageLabel(job); result.append(message);
       }
+      const oneActions = actions(job); if (oneActions.children.length) result.append(oneActions);
       if (job.status === 'error') { error.textContent = job.error || 'A geração falhou.'; error.hidden = false; }
       return;
     }
@@ -485,6 +529,7 @@
       const message = document.createElement('p'); message.textContent = stageLabel(job); result.append(message);
       if (job.status === 'error') { error.textContent = job.error || 'A geração falhou.'; error.hidden = false; }
     }
+    const bar = actions(job); if (bar.children.length) result.append(bar);
   }
 
   form.addEventListener('submit', async event => {
