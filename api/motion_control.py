@@ -107,6 +107,63 @@ def _speech_audio(folder: Path) -> Path:
     return next(path for path in folder.glob("speech.*") if path.suffix in AUDIO_EXT)
 
 
+# --------------------------------------------------------------------------- #
+# Progresso real do ComfyUI (WebSocket)
+# --------------------------------------------------------------------------- #
+
+# prompt_id -> porcentagem da etapa. O ComfyUI não expõe progresso por HTTP: o
+# sampler só manda `progress` pelo WebSocket, e uma conexão global única serve
+# todos os jobs — cada espera lê apenas o prompt_id que ela mesma submeteu.
+PROGRESS: dict[str, int] = {}
+_progress_thread: threading.Thread | None = None
+
+
+def _progress_event(raw: str) -> tuple[str, int] | None:
+    """Evento `progress` do ComfyUI -> (prompt_id, porcentagem)."""
+    try:
+        event = json.loads(raw)
+    except ValueError:
+        return None
+    if event.get("type") != "progress":
+        return None
+    data = event.get("data") or {}
+    maximum = data.get("max") or 0
+    prompt_id = data.get("prompt_id")
+    if not maximum or not prompt_id:
+        return None
+    return str(prompt_id), min(100, round(100 * float(data.get("value") or 0) / float(maximum)))
+
+
+def _progress_worker() -> None:
+    """Escuta /ws do ComfyUI e publica o andamento de cada prompt. Reconecta sozinho."""
+    try:
+        from websockets.sync.client import connect
+    except ImportError:
+        return
+    url = _base_url().replace("http://", "ws://", 1) + "/ws?clientId=cutclips-progress"
+    while True:
+        try:
+            with connect(url, open_timeout=10, close_timeout=5) as socket:
+                for raw in socket:
+                    if isinstance(raw, bytes):  # previews binários de imagem
+                        continue
+                    parsed = _progress_event(raw) if isinstance(raw, str) else None
+                    if parsed:
+                        PROGRESS[parsed[0]] = parsed[1]
+                        if len(PROGRESS) > 512:
+                            PROGRESS.clear()
+        except Exception:
+            time.sleep(10)  # ComfyUI parado ou reiniciando
+
+
+def _progress_watch() -> None:
+    """Sobe o escuta do WebSocket uma vez, na primeira espera de render."""
+    global _progress_thread
+    if _progress_thread is None or not _progress_thread.is_alive():
+        _progress_thread = threading.Thread(target=_progress_worker, daemon=True)
+        _progress_thread.start()
+
+
 def _base_url() -> str:
     url = os.getenv("CUTCLIPS_COMFYUI_URL", "http://127.0.0.1:8188").rstrip("/")
     parsed = urlparse(url)
@@ -222,9 +279,18 @@ def _submit(client: httpx.Client, flow: dict, job_id: str) -> str:
 def _await_entry(client: httpx.Client, prompt_id: str, output_id: str, *, job_id: str,
                  output_keys: tuple[str, ...], minutes: int, missing: str, interval: int = 4):
     """Espera o histórico do ComfyUI devolver a saída pedida e devolve a primeira entrada."""
+    _progress_watch()
+    _save(job_id, progress=None)
     deadline = time.monotonic() + 60 * minutes
+    last = -1
     while time.monotonic() < deadline:
         _check_cancel(job_id)
+        # Percentual da etapa vindo do WebSocket: salta de 5 em 5 para não
+        # reescrever o status.json a cada evento.
+        percent = PROGRESS.get(prompt_id)
+        if percent is not None and (percent == 100 or percent >= last + 5):
+            last = max(last, percent)
+            _save(job_id, progress=percent)
         time.sleep(interval)
         response = client.get(f"/history/{prompt_id}")
         response.raise_for_status()
@@ -331,13 +397,38 @@ def _tryon_flux_flow(person: str, outfit: str, description: str, aspect: str, mo
     return flux_image_workflow(_prompt(mode, text, False), aspect, "1K", [person, outfit])
 
 
+REFINE_HINT = ("Redo this photo correcting only the hands and any label text, keeping the composition, "
+               "person, background and lighting identical.")
+
+
+def _refine_flux_flow(person: str, outfit: str, description: str, aspect: str, mode: str) -> tuple[dict, str]:
+    """Passe opcional: refaz a foto composta como identidade (imagem 1), corrigindo mãos e rótulo."""
+    from api.influencers import _prompt  # import tardio: api.influencers já importa este módulo
+    text = f"{description.strip()} {REFINE_HINT}".strip()
+    return flux_image_workflow(_prompt(mode, text, False), aspect, "1K", [person, outfit])
+
+
+def _refine_composed(client: httpx.Client, job_id: str, composed: Path, outfit: str,
+                     description: str, aspect: str, mode: str) -> None:
+    """2ª passada do FLUX: a foto composta vira referência de identidade e o FLUX refaz
+    a cena corrigindo mãos e rótulo. Roda dentro do estágio 1, antes da bandeira done_dress."""
+    _save(job_id, status="dressing")
+    reference = _upload(client, composed)
+    flow, output_id = _refine_flux_flow(reference, outfit, description, aspect, mode)
+    prompt_id = _submit(client, flow, job_id)
+    _save(job_id, status="dressing", prompt_id=prompt_id)
+    entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("images",), minutes=45,
+                         missing="O ComfyUI concluiu o passe de refino sem devolver uma imagem.")
+    _stream(client, entry, composed, MAX_RESULT, "A imagem da etapa 1 excede 600 MB", job_id=job_id)
+
+
 def _person_source(job_id: str) -> Path:
     """Foto pronta de uma geração da Influencer IA (import tardio pelo mesmo motivo acima)."""
     from api.influencers import _source_image
     return _source_image(job_id)
 
 
-def _run_tryon(job_id: str, description: str, mode: str = "outfit") -> None:
+def _run_tryon(job_id: str, description: str, mode: str = "outfit", refine: bool = False) -> None:
     """Etapa 1: FLUX veste a roupa (ou aplica o produto) na foto. Etapa 2: Wan Animate anima."""
     from api.influencers import _reference  # import tardio: api.influencers já importa este módulo
     folder = ROOT / job_id
@@ -377,6 +468,9 @@ def _run_tryon(job_id: str, description: str, mode: str = "outfit") -> None:
                                      minutes=45,
                                      missing="O ComfyUI concluiu a etapa da roupa sem devolver uma imagem.")
                 _stream(client, entry, composed, MAX_RESULT, "A imagem da etapa 1 excede 600 MB", job_id=job_id)
+                if refine:
+                    _refine_composed(client, job_id, composed, outfit, description,
+                                     _aspect_for(media.width, media.height), mode)
                 _save(job_id, composed=COMPOSED_NAME, done_dress=True)
 
             # Etapa 2 -- a foto já vestida segue os movimentos do vídeo de dança.
@@ -432,6 +526,48 @@ def _lipsync_flow(image: str, audio: str) -> tuple[dict, str]:
     return flow, saves[0][0]
 
 
+LIPSYNC_VIDEO_HINT = ("Configure CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW com um fluxo de lip-sync sobre vídeo "
+                      "(um carregador de vídeo + um LoadAudio + um SaveVideo).")
+
+
+def _custom_lipsync_video() -> bool:
+    """O lip-sync sobre o vídeo de dança é opcional: só roda se o fluxo estiver declarado."""
+    return bool(os.getenv("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW", "").strip())
+
+
+def _video_loaders(flow: dict) -> list[tuple[str, dict]]:
+    """Carregadores de vídeo: o nativo LoadVideo e o VHS_LoadVideo do VideoHelperSuite."""
+    return find_nodes(flow, "LoadVideo") or find_nodes(flow, "VHS_LoadVideo")
+
+
+def _lipsync_video_status(info: dict) -> tuple[bool, list[str]]:
+    """Nós ausentes ou estrutura errada do fluxo de lip-sync sobre vídeo."""
+    try:
+        flow = load_local_template("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW")
+    except ValueError:
+        return False, ["fluxo CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW ilegível"]
+    required = {node.get("class_type", "") for node in flow.values()}
+    missing = sorted(kind for kind in required if kind and kind not in info)
+    if len(_video_loaders(flow)) != 1 or len(find_nodes(flow, "LoadAudio")) != 1 \
+            or len(find_nodes(flow, "SaveVideo")) != 1:
+        missing.append("estrutura (1 vídeo + 1 LoadAudio + 1 SaveVideo)")
+    return not missing, missing
+
+
+def _lipsync_video_flow(video: str, audio: str) -> tuple[dict, str]:
+    """Injeta vídeo da dança e áudio da fala no fluxo de CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW."""
+    flow = load_local_template("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW")
+    videos, audios, saves = _video_loaders(flow), find_nodes(flow, "LoadAudio"), find_nodes(flow, "SaveVideo")
+    if len(videos) != 1 or len(audios) != 1 or len(saves) != 1:
+        raise ValueError("O fluxo de lip-sync de vídeo precisa ter exatamente um carregador de vídeo, "
+                         "um LoadAudio e um SaveVideo")
+    field = "video" if "video" in videos[0][1]["inputs"] else next(iter(videos[0][1]["inputs"]), "video")
+    videos[0][1]["inputs"][field] = video
+    audios[0][1]["inputs"]["audio"] = audio
+    saves[0][1]["inputs"]["filename_prefix"] = "video/cutclips-dance-talk"
+    return flow, saves[0][0]
+
+
 LIPSYNC_HINT = ("Configure CUTCLIPS_LIPSYNC_WORKFLOW com o caminho de um fluxo de lip-sync "
                 "exportado em formato API do ComfyUI (LoadImage + LoadAudio + SaveVideo).")
 
@@ -478,7 +614,7 @@ def _run_lipsync(job_id: str, text: str, voice: str, reply_to: str = "") -> None
 
 
 def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
-                 benefit: str, cta: str, script: str) -> None:
+                 benefit: str, cta: str, script: str, refine: bool = False) -> None:
     """Dois vídeos: voz primeiro (falha em segundos), FLUX se houver produto, dança e lip-sync."""
     from api.influencers import _reference  # import tardio: api.influencers já importa este módulo
     folder = ROOT / job_id
@@ -486,9 +622,14 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
     composed = folder / COMPOSED_NAME
     result = folder / "result.mp4"
     talking = folder / "talking.mp4"
+    dance_talk = folder / "dance_talk.mp4"
+    # Cada estágio tem a sua bandeira: a retomada pula o que já terminou, e o
+    # lip-sync sobre o vídeo de dança é uma terceira saída, só com fluxo declarado.
+    pending_talk = not _stage_done(job_id, "done_talk", talking)
+    pending_dance_talk = _custom_lipsync_video() and not _stage_done(job_id, "done_dance_talk", dance_talk)
     try:
         _check_cancel(job_id)
-        if _stage_done(job_id, "done_talk", talking):
+        if not pending_talk and not pending_dance_talk:
             _finish(job_id)
             return
         with httpx.Client(base_url=_base_url(), timeout=httpx.Timeout(60, read=180)) as client:
@@ -506,11 +647,17 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
                 flux_ready, flux_missing = _flux_status(info)
                 if not flux_ready:
                     raise RuntimeError("FLUX incompleto no ComfyUI. Faltando: " + ", ".join(flux_missing))
-            if not _custom_lipsync():
-                raise RuntimeError(LIPSYNC_HINT)
-            lipsync_ready, lipsync_missing = _lipsync_status(info)
-            if not lipsync_ready:
-                raise RuntimeError("Lip-sync incompleto no ComfyUI. Faltando: " + ", ".join(lipsync_missing))
+            if pending_talk:
+                if not _custom_lipsync():
+                    raise RuntimeError(LIPSYNC_HINT)
+                lipsync_ready, lipsync_missing = _lipsync_status(info)
+                if not lipsync_ready:
+                    raise RuntimeError("Lip-sync incompleto no ComfyUI. Faltando: " + ", ".join(lipsync_missing))
+            if pending_dance_talk:
+                video_ready, video_missing = _lipsync_video_status(info)
+                if not video_ready:
+                    raise RuntimeError("Lip-sync de vídeo incompleto no ComfyUI. Faltando: "
+                                       + ", ".join(video_missing))
 
             source = next(path for path in folder.glob("motion.*") if path.stem == "motion")
             media = probe(source)
@@ -539,6 +686,9 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
                                      missing="O ComfyUI concluiu a etapa do produto sem devolver uma imagem.")
                 _stream(client, entry, composed, MAX_RESULT, "A imagem da etapa do produto excede 600 MB",
                         job_id=job_id)
+                if refine:
+                    _refine_composed(client, job_id, composed, item, description,
+                                     _aspect_for(media.width, media.height), mode)
                 _save(job_id, composed=COMPOSED_NAME, done_dress=True)
                 source_image = composed
             elif dressed:
@@ -568,16 +718,34 @@ def _run_oneshot(job_id: str, description: str, mode: str, product_name: str,
                 _save(job_id, status="talking", dance_ready=True, done_dance=True)
 
             # Lip-sync -- a segunda metade: a mesma cara falando o roteiro de venda.
-            image = _upload(client, source_image)
-            sound = _upload(client, speech)
-            flow, output_id = _lipsync_flow(image, sound)
-            prompt_id = _submit(client, flow, job_id)
-            _save(job_id, status="talking", prompt_id=prompt_id)
-            entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("videos", "gifs"),
-                                 minutes=60, interval=5,
-                                 missing="O ComfyUI concluiu sem devolver um vídeo. Verifique o nó SaveVideo.")
-            _stream(client, entry, talking, MAX_RESULT, "O vídeo gerado excede 600 MB", job_id=job_id)
-            _finish(job_id, done_talk=True)
+            if pending_talk:
+                image = _upload(client, source_image)
+                sound = _upload(client, speech)
+                flow, output_id = _lipsync_flow(image, sound)
+                prompt_id = _submit(client, flow, job_id)
+                _save(job_id, status="talking", prompt_id=prompt_id)
+                entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("videos", "gifs"),
+                                     minutes=60, interval=5,
+                                     missing="O ComfyUI concluiu sem devolver um vídeo. Verifique o nó SaveVideo.")
+                _stream(client, entry, talking, MAX_RESULT, "O vídeo gerado excede 600 MB", job_id=job_id)
+                _save(job_id, done_talk=True)
+
+            # Terceira saída opcional: a mesma fala sincronizada sobre o vídeo de
+            # dança — ela dançando E falando, o melhor dos dois entregues juntos.
+            if pending_dance_talk:
+                _save(job_id, status="talking")
+                moving = _upload(client, result)
+                voice = _upload(client, speech)
+                flow, output_id = _lipsync_video_flow(moving, voice)
+                prompt_id = _submit(client, flow, job_id)
+                _save(job_id, status="talking", prompt_id=prompt_id)
+                entry = _await_entry(client, prompt_id, output_id, job_id=job_id, output_keys=("videos", "gifs"),
+                                     minutes=90, interval=5,
+                                     missing="O ComfyUI concluiu sem devolver o vídeo de lip-sync. "
+                                             "Verifique o nó SaveVideo.")
+                _stream(client, entry, dance_talk, MAX_RESULT, "O vídeo gerado excede 600 MB", job_id=job_id)
+                _save(job_id, dance_talk=True, done_dance_talk=True)
+            _finish(job_id)
     except Exception as exc:
         _fail(job_id, exc)
 
@@ -591,6 +759,21 @@ def _lipsync_config(info: dict | None) -> tuple[bool, list[str]]:
     return _lipsync_status(info)
 
 
+def _lipsync_video_config(info: dict | None) -> tuple[bool, bool, list[str]]:
+    """Terceira saída opcional: (configurado, pronto, o que falta). Sem env var, não é falta."""
+    if not _custom_lipsync_video():
+        return False, False, []
+    if info is None:
+        # Sem ComfyUI ainda dá para dizer se o arquivo declarado é legível.
+        try:
+            load_local_template("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW")
+        except ValueError as exc:
+            return True, False, [str(exc)]
+        return True, False, []
+    ready, missing = _lipsync_video_status(info)
+    return True, ready, missing
+
+
 @router.get("/config")
 def configuration():
     try:
@@ -600,25 +783,31 @@ def configuration():
             info = response.json()
             flux_ready, flux_missing = _flux_status(info)
             lipsync_ready, lipsync_missing = _lipsync_config(info)
+            video_set, video_ready, video_missing = _lipsync_video_config(info)
+            video = {"lipsync_video_configured": video_set, "lipsync_video_ready": video_ready,
+                     "lipsync_video_missing": video_missing}
             if not _custom_template():
                 missing = _builtin_missing(info)
                 return {"ready": not missing, "connected": True, "url": _base_url(), "template": not missing,
                         "missing": missing, "flux_ready": flux_ready, "flux_missing": flux_missing,
-                        "lipsync_ready": lipsync_ready, "lipsync_missing": lipsync_missing}
+                        "lipsync_ready": lipsync_ready, "lipsync_missing": lipsync_missing, **video}
             try:
                 flow = load_local_template("CUTCLIPS_WAN_WORKFLOW")
                 required = {node["class_type"] for node in flow.values()}
                 return {"ready": required.issubset(info), "connected": True, "url": _base_url(), "template": True,
                         "flux_ready": flux_ready, "flux_missing": flux_missing,
-                        "lipsync_ready": lipsync_ready, "lipsync_missing": lipsync_missing}
+                        "lipsync_ready": lipsync_ready, "lipsync_missing": lipsync_missing, **video}
             except ValueError:
                 return {"ready": False, "connected": True, "url": _base_url(), "template": False,
                         "flux_ready": flux_ready, "flux_missing": flux_missing,
-                        "lipsync_ready": lipsync_ready, "lipsync_missing": lipsync_missing}
+                        "lipsync_ready": lipsync_ready, "lipsync_missing": lipsync_missing, **video}
     except (httpx.HTTPError, ValueError):
         lipsync_ready, lipsync_missing = _lipsync_config(None)
+        video_set, video_ready, video_missing = _lipsync_video_config(None)
         return {"ready": False, "connected": False, "template": False, "flux_ready": False, "flux_missing": [],
                 "lipsync_ready": lipsync_ready, "lipsync_missing": lipsync_missing,
+                "lipsync_video_configured": video_set, "lipsync_video_ready": video_ready,
+                "lipsync_video_missing": video_missing,
                 "url": os.getenv("CUTCLIPS_COMFYUI_URL", "http://127.0.0.1:8188")}
 
 
@@ -671,7 +860,7 @@ async def create(
 async def create_tryon(
     video: UploadFile = File(...), outfit: UploadFile = File(...),
     person: UploadFile | None = File(None), person_job: str = Form(""),
-    prompt: str = Form(""), mode: str = Form("outfit"),
+    prompt: str = Form(""), mode: str = Form("outfit"), refine: bool = Form(False),
 ):
     """Três entradas: vídeo de dança, foto da influencer (enviada ou da Influencer IA) e foto da roupa ou do produto."""
     from api.influencers import _copy_image  # import tardio: api.influencers já importa este módulo
@@ -721,8 +910,9 @@ async def create_tryon(
         "image_name": Path(person.filename).name if has_person else "Influencer IA",
         "outfit_name": Path(outfit.filename).name, "video_name": Path(video.filename).name,
         "description": description[:160], "run_prompt": description,
+        "refine": bool(refine),
     }, ensure_ascii=False), encoding="utf-8")
-    threading.Thread(target=_run_tryon, args=(job_id, description, mode), daemon=True).start()
+    threading.Thread(target=_run_tryon, args=(job_id, description, mode, bool(refine)), daemon=True).start()
     return _record(job_id)
 
 
@@ -802,6 +992,7 @@ async def create_oneshot(
     product: UploadFile | None = File(None),
     product_name: str = Form(...), benefit: str = Form(""), cta: str = Form(""),
     script: str = Form(""), mode: str = Form("product"), prompt: str = Form(""),
+    refine: bool = Form(False),
 ):
     """Dois vídeos num job: a influencer dançando com o produto e ela falando o roteiro de venda."""
     from api.influencers import _copy_image  # import tardio: api.influencers já importa este módulo
@@ -834,6 +1025,13 @@ async def create_oneshot(
         load_local_template("CUTCLIPS_LIPSYNC_WORKFLOW")
     except ValueError as exc:
         raise HTTPException(503, str(exc)) from exc
+    # O lip-sync sobre o vídeo de dança é opcional, mas se o fluxo estiver declarado
+    # ele também precisa estar legível — de novo, antes de qualquer render.
+    if _custom_lipsync_video():
+        try:
+            load_local_template("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW")
+        except ValueError as exc:
+            raise HTTPException(503, f"{exc} (CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW)") from exc
     source = None if has_person else _person_source(person_job.strip())
     description = prompt.strip() or ("Present the product exactly as in image 2."
                                      if mode == "product" else "Match the garment exactly.")
@@ -868,9 +1066,10 @@ async def create_oneshot(
         "video_name": Path(video.filename).name,
         "product_name": name, "description": description[:160], "run_prompt": description,
         "benefit": benefit.strip(), "cta": cta.strip(), "script": script,
+        "refine": bool(refine),
     }, ensure_ascii=False), encoding="utf-8")
     threading.Thread(target=_run_oneshot, args=(job_id, description, mode, name,
-                                                benefit.strip(), cta.strip(), script),
+                                                benefit.strip(), cta.strip(), script, bool(refine)),
                      daemon=True).start()
     return _record(job_id)
 
@@ -929,14 +1128,16 @@ def retry(job_id: str):
         _save(job_id, status="queued", created_at=time.time(), error="")
         kind = job.get("kind", "motion")
         if kind == "tryon":
-            target, args = _run_tryon, (job_id, job.get("run_prompt", ""), job.get("mode", "outfit"))
+            target, args = _run_tryon, (job_id, job.get("run_prompt", ""), job.get("mode", "outfit"),
+                                        bool(job.get("refine")))
         elif kind == "lipsync":
             target, args = _run_lipsync, (job_id, job.get("run_text", ""), job.get("voice", ""),
                                            job.get("run_reply", ""))
         elif kind == "oneshot":
             target, args = _run_oneshot, (job_id, job.get("run_prompt", ""), job.get("mode", "product"),
                                           job.get("product_name", ""), job.get("benefit", ""),
-                                          job.get("cta", ""), job.get("script", ""))
+                                          job.get("cta", ""), job.get("script", ""),
+                                          bool(job.get("refine")))
         else:
             target, args = _run, (job_id, job.get("run_prompt", DEFAULT_MOTION_PROMPT))
     threading.Thread(target=target, args=args, daemon=True).start()
@@ -968,6 +1169,22 @@ def talking_download(job_id: str):
         raise HTTPException(404, "Vídeo falando ainda não disponível")
     return FileResponse(ROOT / job_id / "talking.mp4", media_type="video/mp4",
                         filename=f"venda-falando-{job_id[:8]}.mp4")
+
+
+@router.get("/{job_id}/dance-talk")
+def dance_talk_view(job_id: str):
+    """Terceira saída do one-shot: lip-sync aplicado sobre o vídeo de dança inteiro."""
+    if not job_id.isalnum() or not (ROOT / job_id / "dance_talk.mp4").is_file():
+        raise HTTPException(404, "Vídeo com lip-sync na dança ainda não disponível")
+    return FileResponse(ROOT / job_id / "dance_talk.mp4", media_type="video/mp4")
+
+
+@router.get("/{job_id}/dance-talk/download")
+def dance_talk_download(job_id: str):
+    if not job_id.isalnum() or not (ROOT / job_id / "dance_talk.mp4").is_file():
+        raise HTTPException(404, "Vídeo com lip-sync na dança ainda não disponível")
+    return FileResponse(ROOT / job_id / "dance_talk.mp4", media_type="video/mp4",
+                        filename=f"venda-dancando-falando-{job_id[:8]}.mp4")
 
 
 @router.get("/{job_id}/download")

@@ -29,6 +29,7 @@
         <small>Prefira uma pessoa visível, com rosto e corpo claros. Também dá para usar uma imagem pronta da aba Influencer IA. Até 20 MB.</small></div>
       <label class="mc-input"><strong id="tcOutfitLabel">3 · Foto da roupa</strong><span class="mc-file" id="tcOutfitDrop"><span>Escolher imagem da peça</span><input name="outfit" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" required></span><small id="tcOutfitHint">A peça de frente e bem iluminada: é ela que a influencer vai vestir. Até 20 MB.</small></label>
       <label class="mc-input"><strong id="tcPromptLabel">Descrição da roupa (opcional)</strong><textarea name="prompt" maxlength="2500">A pessoa veste a roupa da foto, mantendo rosto, cabelo e corpo.</textarea></label>
+      <label class="mc-check"><input type="checkbox" name="refine"> Passe extra do FLUX para corrigir mãos e rótulo (+~40 s)</label>
       <button type="submit" class="mc-generate" id="tcGenerate">Gerar com troca de roupa</button>
       <p class="mc-note" id="tcNote">Duas etapas locais, sem créditos: o FLUX veste a peça na foto e o Wan Animate anima com o vídeo. Primeiro a foto vestida (etapa 1), depois o vídeo (etapa 2).</p>
     </form><form class="mc-card mc-pane" id="mcSpeakForm" data-pane="lipsync" hidden>
@@ -63,8 +64,9 @@
         <input type="text" name="cta" maxlength="200" placeholder="Chamada final (opcional) — ex.: o link tá na vitrine">
         <textarea name="script" maxlength="1000" rows="3" placeholder="Roteiro escrito por você (opcional). Vazio: a IA escreve, ou um template fixo quando não há chave."></textarea>
         <small>O roteiro vira a voz da influencer (a salva como a dela) e lip-sync. Benefício e chamada alimentam a IA ou o template.</small></div>
+      <label class="mc-check"><input type="checkbox" name="refine"> Passe extra do FLUX para corrigir mãos e rótulo (+~40 s)</label>
       <button type="submit" class="mc-generate" id="slGenerate">Gerar os dois vídeos</button>
-      <p class="mc-note">Um job, dois vídeos: ela dançando com o produto e ela falando o roteiro de venda. Exige Wan, FLUX (se houver foto do produto) e o fluxo de lip-sync configurado.</p>
+      <p class="mc-note">Um job, dois vídeos: ela dançando com o produto e ela falando o roteiro de venda. Exige Wan, FLUX (se houver foto do produto) e o fluxo de lip-sync configurado. Com <code>CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW</code>, sai um terceiro vídeo com ela dançando e falando ao mesmo tempo.</p>
     </form><div><div class="mc-card"><h2>Resultado</h2><div class="mc-status" id="mcConfig">Verificando ComfyUI…</div>
       <div class="mc-status" id="mcQueue" hidden></div>
       <div class="mc-result" id="mcResult"><p>Envie uma imagem e um vídeo para começar. O resultado aparecerá aqui.</p></div>
@@ -94,7 +96,7 @@
   const ACTIVE = ['queued', 'speaking', 'dressing', 'uploading', 'processing', 'talking'];
   const stateText = {queued:'Na fila', speaking:'Gerando a voz', dressing:'Vestindo a roupa · etapa 1 de 2', uploading:'Enviando ao ComfyUI', processing:'Gerando vídeo', done:'Concluído', error:'Falhou', cancelled:'Cancelado'};
 
-  function stageLabel(job) {
+  function stageBase(job) {
     if (job.kind === 'oneshot') {
       const one = {queued:'Na fila', speaking:'Gravando a voz da influencer', dressing:'Aplicando o produto',
                    uploading:'Preparando o vídeo de dança', processing:'Gerando o vídeo de dança',
@@ -111,6 +113,13 @@
     }
     return job.kind === 'tryon' && (job.status === 'uploading' || job.status === 'processing')
       ? `${base} · etapa 2 de 2` : base;
+  }
+
+  function stageLabel(job) {
+    // Percentual real da etapa, vindo do WebSocket do ComfyUI.
+    const base = stageBase(job);
+    return ACTIVE.includes(job.status) && typeof job.progress === 'number'
+      ? `${base} · ${job.progress}%` : base;
   }
 
   function preview(input, holder, tag) {
@@ -402,6 +411,12 @@
         problems.push(data.lipsync_missing?.length ? `lip-sync: ${data.lipsync_missing.join(', ')}`
           : 'lip-sync indisponível nesta instalação');
       }
+      // A terceira saída (lip-sync sobre a dança) é opcional, mas se o fluxo foi
+      // declarado ele precisa estar legível — o job falharia cedo, de qualquer forma.
+      if (activePane === 'sell' && data.lipsync_video_configured && !data.lipsync_video_ready) {
+        problems.push(data.lipsync_video_missing?.length ? `lip-sync no vídeo: ${data.lipsync_video_missing.join(', ')}`
+          : 'o fluxo em CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW não pôde ser lido');
+      }
     }
     box.textContent = problems.length
       ? `ComfyUI conectado, mas incompleto — ${problems.join('; ')}.`
@@ -477,7 +492,7 @@
   }
 
   function show(job) {
-    const key = `${job.id}:${job.status}:${job.composed || ''}:${job.dance_ready ? 'd' : ''}:${job.error || ''}`;
+    const key = `${job.id}:${job.status}:${job.composed || ''}:${job.dance_ready ? 'd' : ''}:${job.done_talk ? 't' : ''}:${job.dance_talk ? 'k' : ''}:${job.progress ?? ''}:${job.error || ''}`;
     if (key === displayed) return;
     displayed = key;
     result.replaceChildren(); error.hidden = true;
@@ -508,10 +523,15 @@
         output(`/api/motion-control/${job.id}/view`, `/api/motion-control/${job.id}/download`,
                'Vídeo 1 · a influencer dançando com o produto');
       }
-      if (job.status === 'done') {
+      if (job.status === 'done' || job.done_talk) {
         output(`/api/motion-control/${job.id}/talking`, `/api/motion-control/${job.id}/talking/download`,
                'Vídeo 2 · a influencer falando o roteiro de venda');
-      } else {
+      }
+      if (job.dance_talk) {
+        output(`/api/motion-control/${job.id}/dance-talk`, `/api/motion-control/${job.id}/dance-talk/download`,
+               'Vídeo 3 · a influencer dançando E falando o roteiro');
+      }
+      if (job.status !== 'done') {
         const message = document.createElement('p'); message.textContent = stageLabel(job); result.append(message);
       }
       const oneActions = actions(job); if (oneActions.children.length) result.append(oneActions);
@@ -573,6 +593,7 @@
       else body.append('person_job', tcPersonJob.value);
       body.append('prompt', tryonForm.elements.prompt.value);
       body.append('mode', tcMode);
+      if (tryonForm.elements.refine.checked) body.append('refine', 'true');
       const response = await fetch('/api/motion-control/tryon', {method:'POST', body});
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível iniciar a geração.');
@@ -656,6 +677,7 @@
       body.append('cta', sellForm.elements.cta.value.trim());
       body.append('script', sellForm.elements.script.value.trim());
       body.append('mode', slMode);
+      if (sellForm.elements.refine.checked) body.append('refine', 'true');
       const response = await fetch('/api/motion-control/oneshot', {method:'POST', body});
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível iniciar a geração.');

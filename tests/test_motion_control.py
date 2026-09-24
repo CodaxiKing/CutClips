@@ -342,7 +342,7 @@ def test_retry_restarts_with_stored_parameters_and_clears_the_cancel_flag(client
     assert body["status"] == "queued"
     assert body["error"] == ""
     assert not (folder / "cancel.flag").exists()
-    assert seen == [(job_id, "mostre o perfume", "product")]
+    assert seen == [(job_id, "mostre o perfume", "product", False)]
     # Segundo clique não pode empilhar outra thread em cima da mesma.
     assert client.post(f"/api/motion-control/{job_id}/retry").status_code == 409
 
@@ -357,14 +357,14 @@ def test_retry_reruns_each_kind_with_its_own_runner(client, tmp_path, monkeypatc
     _write_job(root, "e" * 32, kind="lipsync", status="error",
                run_text="Tudo ótimo", voice="Maria", run_reply="")
     client.post(f"/api/motion-control/{'e' * 32}/retry")
-    _write_job(root, "f" * 32, kind="oneshot", status="error", mode="product",
+    _write_job(root, "f" * 32, kind="oneshot", status="error", mode="product", refine=True,
                run_prompt="descreva", product_name="Sérum", benefit="b", cta="c", script="s")
     client.post(f"/api/motion-control/{'f' * 32}/retry")
     _write_job(root, "1" * 32, status="error", run_prompt="dance prompt")
     client.post(f"/api/motion-control/{'1' * 32}/retry")
 
     assert calls[0] == ("lipsync", ("e" * 32, "Tudo ótimo", "Maria", ""))
-    assert calls[1] == ("oneshot", ("f" * 32, "descreva", "product", "Sérum", "b", "c", "s"))
+    assert calls[1] == ("oneshot", ("f" * 32, "descreva", "product", "Sérum", "b", "c", "s", True))
     assert calls[2] == ("motion", ("1" * 32, "dance prompt"))
 
 
@@ -438,3 +438,133 @@ def test_fail_prefers_a_pending_cancel_and_finish_respects_the_flag(tmp_path, mo
     final = json.loads((folder / "status.json").read_text(encoding="utf-8"))
     assert final["status"] == "done"
     assert final["done_dance"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Fase 3: progresso real, passe de refino e lip-sync sobre a dança
+# --------------------------------------------------------------------------- #
+
+def test_progress_event_maps_value_to_percent_and_ignores_the_rest():
+    event = json.dumps({"type": "progress", "data": {"value": 7, "max": 20, "prompt_id": "abc"}})
+    assert motion_control._progress_event(event) == ("abc", 35)
+    over = json.dumps({"type": "progress", "data": {"value": 90, "max": 20, "prompt_id": "abc"}})
+    assert motion_control._progress_event(over) == ("abc", 100)
+    assert motion_control._progress_event("lixo não é json") is None
+    assert motion_control._progress_event(json.dumps({"type": "executing", "data": {}})) is None
+    assert motion_control._progress_event(json.dumps({"type": "progress",
+                                                      "data": {"value": 5, "max": 0, "prompt_id": "x"}})) is None
+    assert motion_control._progress_event(json.dumps({"type": "progress", "data": {"value": 5, "max": 10}})) is None
+
+
+def test_refine_flow_uses_the_composed_photo_and_the_fix_instruction():
+    """Refino: a foto composta vira identidade (imagem 1) e o prompt manda corrigir mãos/rótulo."""
+    flow, output = motion_control._refine_flux_flow("person-outfit.png", "outfit.png",
+                                                    "Sérum com vitamina C", "3:4", "product")
+    assert output == "20"
+    texts = [node["inputs"]["text"] for node in flow.values() if node["class_type"] == "CLIPTextEncode"]
+    assert texts and "correcting only the hands" in texts[0]
+    assert "Sérum com vitamina C" in texts[0]
+    images = [node["inputs"]["image"] for node in flow.values() if node["class_type"] == "LoadImage"]
+    assert images == ["person-outfit.png", "outfit.png"]
+
+
+def test_tryon_records_the_refine_choice_and_retry_passes_it_on(client, tmp_path, monkeypatch):
+    root = _isolated_root(tmp_path, monkeypatch)
+    monkeypatch.setattr(motion_control, "probe", lambda path: SimpleNamespace(duration=5, width=720, height=1280))
+    seen = []
+    monkeypatch.setattr(motion_control, "_run_tryon", lambda *args: seen.append(args))
+    created = client.post("/api/motion-control/tryon", data={"mode": "outfit", "refine": "true"},
+                          files={"video": ("motion.mp4", b"v", "video/mp4"),
+                                 "person": ("person.png", _png(), "image/png"),
+                                 "outfit": ("outfit.png", _png(), "image/png")})
+    assert created.status_code == 200
+    job = created.json()
+    assert job["refine"] is True
+    assert seen == [(job["id"], "Match the garment exactly.", "outfit", True)]
+    # Erro depois + retry: o refino escolhido volta junto.
+    motion_control._save(job["id"], status="error")
+    seen.clear()
+    assert client.post(f"/api/motion-control/{job['id']}/retry").status_code == 200
+    assert seen == [(job["id"], "Match the garment exactly.", "outfit", True)]
+
+
+def _lipsync_video_template():
+    return {"1": {"class_type": "LoadVideo", "inputs": {"video": "old.mp4"}},
+            "2": {"class_type": "LoadAudio", "inputs": {"audio": "old.wav"}},
+            "3": {"class_type": "SaveVideo", "inputs": {"video": ["4", 0], "filename_prefix": "video/old"}},
+            "4": {"class_type": "LatentSyncLike", "inputs": {}}}
+
+
+def test_lipsync_video_flow_injects_dance_and_speech(tmp_path, monkeypatch):
+    path = tmp_path / "dance-talk.json"
+    path.write_text(json.dumps(_lipsync_video_template()), encoding="utf-8")
+    monkeypatch.setenv("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW", str(path))
+    flow, output = motion_control._lipsync_video_flow("dance.mp4", "fala.wav")
+    assert output == "3"
+    assert flow["1"]["inputs"]["video"] == "dance.mp4"
+    assert flow["2"]["inputs"]["audio"] == "fala.wav"
+    assert flow["3"]["inputs"]["filename_prefix"] == "video/cutclips-dance-talk"
+
+
+def test_lipsync_video_flow_accepts_the_vhs_loader_and_rejects_bad_shapes(tmp_path, monkeypatch):
+    vhs = _lipsync_video_template()
+    vhs["1"] = {"class_type": "VHS_LoadVideo", "inputs": {"video": "old.mp4", "force_rate": 0}}
+    path = tmp_path / "vhs.json"
+    path.write_text(json.dumps(vhs), encoding="utf-8")
+    monkeypatch.setenv("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW", str(path))
+    flow, _ = motion_control._lipsync_video_flow("danca.mp4", "fala.wav")
+    assert flow["1"]["inputs"]["video"] == "danca.mp4"
+    # Dois áudios = fluxo ambíguo, recusado com mensagem clara.
+    broken = dict(_lipsync_video_template())
+    broken["5"] = {"class_type": "LoadAudio", "inputs": {"audio": "outro.wav"}}
+    path.write_text(json.dumps(broken), encoding="utf-8")
+    with pytest.raises(ValueError, match="lip-sync de vídeo"):
+        motion_control._lipsync_video_flow("danca.mp4", "fala.wav")
+
+
+def test_lipsync_video_status_flags_bad_structure_against_comfyui(tmp_path, monkeypatch):
+    path = tmp_path / "broken.json"
+    broken = dict(_lipsync_video_template())
+    broken["5"] = {"class_type": "LoadAudio", "inputs": {"audio": "outro.wav"}}
+    path.write_text(json.dumps(broken), encoding="utf-8")
+    monkeypatch.setenv("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW", str(path))
+    ready, missing = motion_control._lipsync_video_status({"LoadVideo": {}, "LoadAudio": {},
+                                                           "SaveVideo": {}, "LatentSyncLike": {}})
+    assert ready is False
+    assert any("estrutura" in item for item in missing)
+    # Com o fluxo certo e todos os nós no ComfyUI, fica pronto.
+    path.write_text(json.dumps(_lipsync_video_template()), encoding="utf-8")
+    ready, missing = motion_control._lipsync_video_status({"LoadVideo": {}, "LoadAudio": {},
+                                                           "SaveVideo": {}, "LatentSyncLike": {}})
+    assert (ready, missing) == (True, [])
+
+
+def test_config_reports_the_optional_video_lipsync(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("CUTCLIPS_COMFYUI_URL", "http://127.0.0.1:9")
+    monkeypatch.delenv("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW", raising=False)
+    data = client.get("/api/motion-control/config").json()
+    assert data["lipsync_video_configured"] is False
+    assert data["lipsync_video_ready"] is False
+    assert data["lipsync_video_missing"] == []
+    # Declarado apontando para um arquivo que não existe: configurado e não pronto,
+    # com o motivo — mesmo com o ComfyUI offline.
+    monkeypatch.setenv("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW", str(tmp_path / "nao-existe.json"))
+    data = client.get("/api/motion-control/config").json()
+    assert data["lipsync_video_configured"] is True
+    assert data["lipsync_video_ready"] is False
+    assert data["lipsync_video_missing"]
+
+
+def test_oneshot_fails_early_when_the_video_lipsync_flow_is_unreadable(client, tmp_path, monkeypatch):
+    """Fluxo declarado mas ilegível = 503 na criação, antes de minutos de render."""
+    root = _isolated_root(tmp_path, monkeypatch)
+    lipsync = tmp_path / "lipsync.json"
+    lipsync.write_text(json.dumps(_lipsync_template()), encoding="utf-8")
+    monkeypatch.setenv("CUTCLIPS_LIPSYNC_WORKFLOW", str(lipsync))
+    monkeypatch.setenv("CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW", str(tmp_path / "quebrado.json"))
+    response = client.post("/api/motion-control/oneshot", data={"product_name": "Sérum Vitamina C"},
+                           files=_oneshot_files())
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "quebrado.json" in detail and "CUTCLIPS_LIPSYNC_VIDEO_WORKFLOW" in detail
+    assert not list(root.glob("*"))
