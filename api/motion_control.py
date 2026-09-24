@@ -27,7 +27,7 @@ from api.local_comfy import (WAN_FPS, WAN_MAX_FRAMES, find_nodes, flux_image_wor
                               load_local_template, local_video_workflow,
                               wan_animate_workflow, wan_models, wan_size)
 from cutclips.config import STORAGE
-from cutclips.narrate import audio_duration, influencer_voice, sell_script, speak
+from cutclips.narrate import audio_duration, influencer_voice, reply_script, sell_script, speak
 from cutclips.probe import ProbeError, probe
 
 router = APIRouter(prefix="/api/motion-control", tags=["Motion Control"])
@@ -42,6 +42,7 @@ MAX_RESULT = 600 * 1024 * 1024
 MAX_PROMPT = 2500
 MAX_SPEECH_CHARS = 1000
 MAX_SPEECH_SECONDS = 60
+MAX_REPLY = 2000
 DEFAULT_MOTION_PROMPT = "A pessoa da imagem executa os movimentos do vídeo de referência."
 COMPOSED_NAME = "person-outfit.png"
 # Etapa 1 da troca de roupa: FLUX veste a peça na foto antes do Wan animar.
@@ -361,14 +362,16 @@ LIPSYNC_HINT = ("Configure CUTCLIPS_LIPSYNC_WORKFLOW com o caminho de um fluxo d
                 "exportado em formato API do ComfyUI (LoadImage + LoadAudio + SaveVideo).")
 
 
-def _run_lipsync(job_id: str, text: str, voice: str) -> None:
-    """Sintetiza a voz (quando o pedido veio como texto) e manda foto + áudio no ComfyUI."""
+def _run_lipsync(job_id: str, text: str, voice: str, reply_to: str = "") -> None:
+    """Sintetiza a voz (texto ou resposta a comentários) e manda foto + áudio no ComfyUI."""
     folder = ROOT / job_id
     try:
-        if text:
-            # TTS local antes de qualquer upload: falha de voz aparece aqui, em segundos,
-            # e não depois de o ComfyUI já ter começado a renderizar.
+        if text or reply_to:
+            # TTS local antes de qualquer upload: falha de voz ou da IA aparece aqui, em
+            # segundos, e não depois de o ComfyUI já ter começado a renderizar.
             _save(job_id, status="speaking")
+            if not text:
+                text = " ".join(reply_script(reply_to))
             speak(text, folder / "speech.wav", voice)
         with httpx.Client(base_url=_base_url(), timeout=httpx.Timeout(60, read=180)) as client:
             info = client.get("/object_info")
@@ -631,8 +634,9 @@ async def create_tryon(
 async def create_lipsync(
     person: UploadFile | None = File(None), person_job: str = Form(""),
     audio: UploadFile | None = File(None), text: str = Form(""), voice: str = Form(""),
+    reply_to: str = Form(""),
 ):
-    """A influencer fala: foto + áudio enviado, ou texto sintetizado com a voz salva."""
+    """A influencer fala: áudio enviado, texto escrito ou resposta a comentários (IA/template)."""
     from api.influencers import _copy_image  # import tardio: api.influencers já importa este módulo
 
     has_person = bool(person and person.filename)
@@ -644,10 +648,13 @@ async def create_lipsync(
     if has_audio and Path(audio.filename).suffix.lower() not in AUDIO_EXT:
         raise HTTPException(422, "Use um áudio WAV, MP3, M4A, AAC, OGG ou FLAC")
     speech = text.strip()
-    if not has_audio and not speech:
-        raise HTTPException(422, "Envie um áudio ou escreva o que a influencer vai falar")
+    reply = reply_to.strip()
+    if not has_audio and not speech and not reply:
+        raise HTTPException(422, "Envie um áudio, escreva o texto ou cole os comentários para responder")
     if len(speech) > MAX_SPEECH_CHARS:
         raise HTTPException(422, f"O texto pode ter no máximo {MAX_SPEECH_CHARS} caracteres")
+    if len(reply) > MAX_REPLY:
+        raise HTTPException(422, f"Os comentários podem ter no máximo {MAX_REPLY} caracteres")
     source = None if has_person else _person_source(person_job.strip())
     # Sem voz escolhida, o TTS usa o perfil salvo como o da influencer.
     chosen_voice = voice.strip() or (influencer_voice()["voice"] if not has_audio else "")
@@ -679,9 +686,13 @@ async def create_lipsync(
         "image_name": Path(person.filename).name if has_person else "Influencer IA",
         "audio_name": Path(audio.filename).name if has_audio else "",
         "description": speech[:160] if not has_audio else "",
+        "reply": reply[:160] if reply and not speech else "",
         "voice": chosen_voice if not has_audio else "",
     }, ensure_ascii=False), encoding="utf-8")
-    threading.Thread(target=_run_lipsync, args=(job_id, "" if has_audio else speech, chosen_voice),
+    run_text = "" if has_audio else speech
+    run_reply = "" if has_audio or run_text else reply
+    threading.Thread(target=_run_lipsync,
+                     args=(job_id, run_text, chosen_voice, run_reply),
                      daemon=True).start()
     return _record(job_id)
 

@@ -138,6 +138,40 @@ def sell_script(product: str, benefit: str = "", cta: str = "", cfg: Config = CO
     return lines
 
 
+REPLY_SYSTEM = """Você responde comentários de vídeos curtos como se fosse o próprio influencer falando.
+
+Regras:
+- Português do Brasil, falado, frases curtas. Entre 2 e 4 frases, ~10 segundos.
+- Agradeça de forma natural, responda o que a pessoa perguntou ou comentou e feche convidando a continuar a conversa.
+- Comentário negativo ou agressivo: responda com educação, sem briga e sem ironia.
+- Nada de listas, markdown, emojis ou "seja bem-vindo".
+
+Devolva SOMENTE JSON válido, sem cercas de código:
+{"script": ["frase 1", "frase 2"]}"""
+
+# Sem IA, ainda assim se responde: agradecer nunca depende de chave.
+REPLY_FALLBACK = ["Valeu pelo comentário, ficou bom demais!",
+                  "Sempre leio o que vocês mandam aqui, continue comentando.",
+                  "Se quiserem ver mais, é só seguir e ficar de olho nos próximos vídeos."]
+
+
+def reply_script(comments: str, cfg: Config = CONFIG) -> list[str]:
+    """Resposta falada a comentários: IA quando há provedor pronto, template quando não."""
+    try:
+        from .quiz_ai import ai_status
+        from .select import PROVIDERS, _extract_json
+        if ai_status(cfg)["ready"]:
+            provider = PROVIDERS.get(cfg.llm_provider)
+            user = f"Comentários recebidos:\n{comments[:1500]}"
+            data = _extract_json(provider(REPLY_SYSTEM, user, cfg))
+            lines = [" ".join(str(x).split()) for x in (data.get("script") or []) if str(x).strip()]
+            if lines:
+                return lines[:6]
+    except Exception:
+        pass  # sem chave ou provedor fora do ar: o template agradecido responde
+    return list(REPLY_FALLBACK)
+
+
 # --------------------------------------------------------------------------- #
 # Voz
 # --------------------------------------------------------------------------- #

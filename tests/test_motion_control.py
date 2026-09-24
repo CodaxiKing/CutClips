@@ -173,13 +173,24 @@ def _lipsync_template():
 
 
 def test_lipsync_requires_a_speech_source(client, tmp_path, monkeypatch):
-    """Foto sem áudio e sem texto não vira job: falha antes de criar qualquer pasta."""
+    """Foto sem áudio, sem texto e sem comentários não vira job: falha antes de criar qualquer pasta."""
     monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
     response = client.post("/api/motion-control/lipsync", files={
         "person": ("person.png", _png(), "image/png"),
     })
     assert response.status_code == 422
     assert "áudio" in response.json()["detail"].lower()
+    assert not list((tmp_path / "motion").glob("*"))
+
+
+def test_lipsync_rejects_too_many_comments(client, tmp_path, monkeypatch):
+    """Modo resposta: colar comentários acima do limite falha antes de criar a pasta."""
+    monkeypatch.setattr(motion_control, "ROOT", tmp_path / "motion")
+    response = client.post("/api/motion-control/lipsync",
+                           data={"reply_to": "comentário " * 400},
+                           files={"person": ("person.png", _png(), "image/png")})
+    assert response.status_code == 422
+    assert "comentários" in response.json()["detail"]
     assert not list((tmp_path / "motion").glob("*"))
 
 

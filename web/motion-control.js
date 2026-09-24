@@ -39,8 +39,8 @@
         <div id="spGallery" hidden><div class="mc-picker" id="spPicker">Carregando gerações…</div><input type="hidden" name="person_job" value=""></div>
         <small>Foto de rosto visível, de frente para a câmera e com boa luz: é ela que ganha os lábios. Até 20 MB.</small></div>
       <div class="mc-input"><strong>2 · O que ela vai dizer</strong>
-        <span class="mc-seg"><button type="button" data-speech="text" class="on">Escrever texto</button><button type="button" data-speech="audio">Enviar áudio</button></span>
-        <div id="spTextWrap"><label class="mc-input"><span class="mc-sr">Texto falado</span><textarea name="text" maxlength="1000" rows="3" placeholder="Ex.: Esse produto mudou a minha rotina matinal."></textarea></label>
+        <span class="mc-seg"><button type="button" data-speech="text" class="on">Escrever texto</button><button type="button" data-speech="reply">Responder comentário</button><button type="button" data-speech="audio">Enviar áudio</button></span>
+        <div id="spTextWrap"><label class="mc-input"><span class="mc-sr">Texto falado</span><textarea name="text" maxlength="2000" rows="3" placeholder="Ex.: Esse produto mudou a minha rotina matinal."></textarea></label>
           <label class="mc-input"><span class="mc-sr">Voz</span><select name="voice" id="spVoice"><option value="">Carregando vozes…</option></select></label>
           <small id="spTextHint">Falado offline com a voz salva como a da influencer. Até 1000 caracteres.</small></div>
         <span class="mc-file" id="spAudioDrop" hidden><span>Escolher áudio WAV, MP3 ou M4A</span><input name="audio" type="file" accept=".wav,.mp3,.m4a,.aac,.ogg,.flac,audio/*"></span>
@@ -100,6 +100,7 @@
       return one[job.status] || job.status;
     }
     let base = stateText[job.status] || job.status;
+    if (job.status === 'speaking' && job.reply) base = 'Escrevendo a resposta · gravando voz';
     if (job.kind === 'tryon' && job.mode === 'product') {
       if (job.status === 'dressing') base = 'Aplicando o produto · etapa 1 de 2';
       if (job.status === 'uploading' || job.status === 'processing') base = `${stateText[job.status]} · etapa 2 de 2`;
@@ -236,9 +237,17 @@
   function setSpeechMode(mode) {
     speechMode = mode;
     speakForm.querySelectorAll('[data-speech]').forEach(btn => btn.classList.toggle('on', btn.dataset.speech === mode));
-    root.querySelector('#spTextWrap').hidden = mode !== 'text';
+    root.querySelector('#spTextWrap').hidden = mode === 'audio';
     root.querySelector('#spAudioDrop').hidden = mode !== 'audio';
     root.querySelector('#spAudioHint').hidden = mode !== 'audio';
+    const box = speakForm.elements.text;
+    if (mode === 'reply') {
+      box.placeholder = 'Cole os comentários, um por linha — a IA responde no tom da influencer.';
+      root.querySelector('#spTextHint').textContent = 'A IA escreve a resposta e ela fala com a voz escolhida. Sem chave de IA, um template agradecido responde. Até 2000 caracteres.';
+    } else {
+      box.placeholder = 'Ex.: Esse produto mudou a minha rotina matinal.';
+      root.querySelector('#spTextHint').textContent = 'Falado offline com a voz salva como a da influencer. Até 1000 caracteres.';
+    }
   }
   speakForm.querySelectorAll('[data-speech]').forEach(btn => btn.addEventListener('click', () => setSpeechMode(btn.dataset.speech)));
 
@@ -411,7 +420,7 @@
         const label = document.createElement('span');
         const origin = job.kind === 'oneshot' ? `Venda · ${job.product_name || 'Produto'}`
           : job.kind === 'tryon' ? `${job.mode === 'product' ? 'Produto' : 'Trocar roupa'} · ${job.outfit_name || 'Imagem'}`
-          : job.kind === 'lipsync' ? `Falando · ${job.audio_name || 'texto'}`
+          : job.kind === 'lipsync' ? `Falando · ${job.reply ? 'resposta ao comentário' : job.audio_name || 'texto'}`
           : (job.image_name || 'Imagem');
         label.textContent = `${origin} · ${stageLabel(job)}`;
         row.append(label);
@@ -539,8 +548,17 @@
     if (speechMode === 'audio' && !spAudio.files[0]) {
       error.textContent = 'Escolha o áudio da fala ou volte para “Escrever texto”.'; error.hidden = false; return;
     }
-    if (speechMode === 'text' && !speech) {
-      error.textContent = 'Escreva o que a influencer vai falar.'; error.hidden = false; return;
+    if (speechMode !== 'audio' && !speech) {
+      error.textContent = speechMode === 'reply'
+        ? 'Cole pelo menos um comentário para responder.'
+        : 'Escreva o que a influencer vai falar.';
+      error.hidden = false; return;
+    }
+    if (speechMode === 'text' && speech.length > 1000) {
+      error.textContent = 'O texto pode ter no máximo 1000 caracteres.'; error.hidden = false; return;
+    }
+    if (speechMode === 'reply' && speech.length > 2000) {
+      error.textContent = 'Os comentários podem ter no máximo 2000 caracteres.'; error.hidden = false; return;
     }
     if ((speakPersonSource === 'upload' && spPerson.files[0].size > 20 * 1024 * 1024) ||
         (speechMode === 'audio' && spAudio.files[0].size > 30 * 1024 * 1024)) {
@@ -552,7 +570,10 @@
       if (speakPersonSource === 'upload') body.append('person', spPerson.files[0]);
       else body.append('person_job', spPersonJob.value);
       if (speechMode === 'audio') body.append('audio', spAudio.files[0]);
-      else { body.append('text', speech); body.append('voice', speakForm.elements.voice.value); }
+      else if (speechMode === 'reply') {
+        body.append('reply_to', speech);
+        body.append('voice', speakForm.elements.voice.value);
+      } else { body.append('text', speech); body.append('voice', speakForm.elements.voice.value); }
       const response = await fetch('/api/motion-control/lipsync', {method:'POST', body});
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Não foi possível iniciar a geração.');

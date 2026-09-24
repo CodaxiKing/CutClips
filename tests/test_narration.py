@@ -132,3 +132,20 @@ def test_sell_script_uses_the_ai_when_a_provider_is_ready(monkeypatch):
                         lambda system, user, cfg: '{"script": ["Gancho com o produto.", "Benefício real.", "Corre lá!"]}')
     lines = narrate.sell_script("Chá Verde", cfg=Config(llm_provider="anthropic"))
     assert lines == ["Gancho com o produto.", "Benefício real.", "Corre lá!"]
+
+
+def test_reply_script_falls_back_to_the_template_without_ai(monkeypatch):
+    """Sem provedor pronto o comentário ainda é respondido: agradecer não espera chave."""
+    from cutclips import quiz_ai
+    monkeypatch.setattr(quiz_ai, "ai_status", lambda cfg=None: {"ready": False})
+    assert narrate.reply_script("amei o produto, chegou rápido!") == narrate.REPLY_FALLBACK
+
+
+def test_reply_script_uses_the_ai_when_a_provider_is_ready(monkeypatch):
+    from cutclips import quiz_ai, select
+    from cutclips.config import Config
+    monkeypatch.setattr(quiz_ai, "ai_status", lambda cfg=None: {"ready": True})
+    monkeypatch.setitem(select.PROVIDERS, "anthropic",
+                        lambda system, user, cfg: '{"script": ["Valeu!", "Fico feliz que curtiu.", "Comenta mais!"]}')
+    lines = narrate.reply_script("top demais", cfg=Config(llm_provider="anthropic"))
+    assert lines == ["Valeu!", "Fico feliz que curtiu.", "Comenta mais!"]
